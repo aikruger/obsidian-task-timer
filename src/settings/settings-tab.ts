@@ -116,18 +116,82 @@ export class TaskTimerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Hover modifier key")
+      .setName("Trigger mode")
+      .setDesc("How to trigger the popover.")
       .addDropdown((dropdown) => {
-        dropdown.addOption("Alt", "Alt/Option");
-        dropdown.addOption("Ctrl", "Control");
-        dropdown.addOption("Shift", "Shift");
-        dropdown.addOption("Meta", "Command/Windows");
-        dropdown.setValue(this.settings.hoverModifierKey);
-        dropdown.onChange(async (value: "Alt" | "Ctrl" | "Shift" | "Meta") => {
-          this.settings.hoverModifierKey = value;
+        dropdown.addOption("hover", "Hover only");
+        dropdown.addOption("alt", "Alt + hover");
+        dropdown.addOption("ctrl", "Ctrl + hover");
+        dropdown.addOption("shift", "Shift + hover");
+        dropdown.addOption("meta", "Meta + hover");
+        dropdown.addOption("alt-ctrl", "Alt+Ctrl + hover");
+        dropdown.addOption("alt-shift", "Alt+Shift + hover");
+        dropdown.addOption("click", "Click on marker");
+        dropdown.addOption("none", "None");
+        dropdown.setValue(this.settings.hoverTriggerMode);
+        dropdown.onChange(async (value: "hover" | "alt" | "ctrl" | "shift" | "meta" | "alt-ctrl" | "alt-shift" | "click" | "none") => {
+          this.settings.hoverTriggerMode = value;
           await this.plugin.saveSettings();
         });
       });
+
+    new Setting(containerEl)
+      .setName("Click action")
+      .setDesc("Action when clicking the marker.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("sidebar", "Open sidebar");
+        dropdown.addOption("popover", "Open popover");
+        dropdown.addOption("both", "Both");
+        dropdown.setValue(this.settings.clickAction);
+        dropdown.onChange(async (value: "sidebar" | "popover" | "both") => {
+          this.settings.clickAction = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Hover open delay (ms)")
+      .addText((text) =>
+        text
+          .setValue(this.settings.hoverOpenDelayMs.toString())
+          .onChange(async (value) => {
+            this.settings.hoverOpenDelayMs = parseInt(value, 10) || 180;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Hover close delay (ms)")
+      .addText((text) =>
+        text
+          .setValue(this.settings.hoverCloseDelayMs.toString())
+          .onChange(async (value) => {
+            this.settings.hoverCloseDelayMs = parseInt(value, 10) || 220;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Persistent popover")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.settings.popoverPersistent)
+          .onChange(async (value) => {
+            this.settings.popoverPersistent = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Click outside closes popover")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.settings.popoverClickOutsideCloses)
+          .onChange(async (value) => {
+            this.settings.popoverClickOutsideCloses = value;
+            await this.plugin.saveSettings();
+          })
+      );
 
     new Setting(containerEl)
       .setName("Export folder")

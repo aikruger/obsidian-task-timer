@@ -9,53 +9,110 @@ export class InlineMarkerManager {
     const textNodes = Array.from(el.querySelectorAll("li.task-list-item"));
 
     textNodes.forEach(node => {
-       // Look for block reference ID at the end
        const textContent = node.textContent || "";
        const blockIdMatch = textContent.match(/\^([a-zA-Z0-9-]+)$/);
 
        if (blockIdMatch) {
            const blockId = `^${blockIdMatch[1]}`;
-           // Find if we have a timer for this block ID
            const allTimers = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
            const timer = allTimers.find(t => t.anchor.blockId === blockId);
 
            if (timer) {
-               // Find the ⏱ marker in the HTML and replace it with our interactive span
                this.enhanceMarker(node as HTMLElement, timer);
            }
        }
     });
   }
 
-  private enhanceMarker(node: HTMLElement, timer: import("../types/models").TaskTimerRecord) {
-      // Very basic approach: search for ⏱ and wrap it.
-      // In a robust implementation we'd walk the DOM tree to replace the exact text node.
-      if (node.innerHTML.includes("⏱")) {
-          const stateClass = `ttimer-inline-marker--${timer.state}`;
-          node.innerHTML = node.innerHTML.replace("⏱", `<span class="ttimer-inline-marker ${stateClass}" data-timer-id="${timer.id}">⏱</span>`);
+  private findTimerMarkerNode(root: Node): Node | null {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.nodeValue && node.nodeValue.includes("⏱")) {
+        return node;
+      }
+    }
+    return null;
+  }
 
-          // Re-attach listeners since we replaced innerHTML (this is naive, should use better DOM manip)
-          const markerSpan = node.querySelector(`span[data-timer-id="${timer.id}"]`);
-          if (markerSpan) {
-              markerSpan.addEventListener("click", (e) => {
+  private enhanceMarker(node: HTMLElement, timer: import("../types/models").TaskTimerRecord) {
+      const textNode = this.findTimerMarkerNode(node);
+
+      if (textNode && textNode.parentNode) {
+          const parent = textNode.parentNode;
+
+          // Split the text node around the marker to replace just the marker
+          const nodeValue = textNode.nodeValue || "";
+          const markerIndex = nodeValue.indexOf("⏱");
+
+          if (markerIndex !== -1) {
+              const beforeText = nodeValue.substring(0, markerIndex);
+              const afterText = nodeValue.substring(markerIndex + 1);
+
+              const beforeNode = document.createTextNode(beforeText);
+              const afterNode = document.createTextNode(afterText);
+
+              const marker = document.createElement("span");
+              marker.className = `ttimer-inline-marker ttimer-inline-marker--${timer.state}`;
+              marker.dataset.timerId = timer.id;
+              marker.textContent = "⏱";
+
+              parent.insertBefore(beforeNode, textNode);
+              parent.insertBefore(marker, textNode);
+              parent.insertBefore(afterNode, textNode);
+              parent.removeChild(textNode);
+
+              marker.addEventListener("click", (e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  this.openSidebarAndFocus(timer.id);
+                  this.handleClick(e, timer.id, marker);
               });
 
-              markerSpan.addEventListener("mouseover", (e: MouseEvent) => {
-                  const modKey = this.plugin.dataStore.data.settings.hoverModifierKey;
-                  const isModPressed = (modKey === "Alt" && e.altKey) ||
-                                       (modKey === "Ctrl" && e.ctrlKey) ||
-                                       (modKey === "Shift" && e.shiftKey) ||
-                                       (modKey === "Meta" && e.metaKey);
-
-                  if (isModPressed && this.plugin.dataStore.data.settings.hoverPopupEnabled) {
-                      this.plugin.popoverManager.showPopover(e.currentTarget as HTMLElement, timer.id);
+              marker.addEventListener("mouseenter", (e) => {
+                  this.plugin.popoverManager.pointerInsideMarker = true;
+                  if (this.shouldOpenPopoverFromEvent(e)) {
+                      this.plugin.popoverManager.scheduleShow(marker, timer.id, e);
                   }
+              });
+
+              marker.addEventListener("mouseleave", () => {
+                  this.plugin.popoverManager.pointerInsideMarker = false;
+                  this.plugin.popoverManager.scheduleHide();
               });
           }
       }
+  }
+
+  private handleClick(e: MouseEvent, timerId: string, anchorEl: HTMLElement) {
+    const action = this.plugin.dataStore.data.settings.clickAction;
+    const mode = this.plugin.dataStore.data.settings.hoverTriggerMode;
+
+    if (mode === "click") {
+        // In click mode, the click opens the popover, ignore action setting
+        this.plugin.popoverManager.showPopover(anchorEl, timerId);
+        return;
+    }
+
+    if (action === "sidebar" || action === "both") {
+        this.openSidebarAndFocus(timerId);
+    }
+    if (action === "popover" || action === "both") {
+        this.plugin.popoverManager.showPopover(anchorEl, timerId);
+    }
+  }
+
+  private shouldOpenPopoverFromEvent(evt: MouseEvent): boolean {
+    const mode = this.plugin.dataStore.data.settings.hoverTriggerMode;
+    if (mode === "none") return false;
+    if (mode === "hover") return true;
+    if (mode === "click") return false; // Handled by click listener
+    if (mode === "alt") return evt.altKey;
+    if (mode === "ctrl") return evt.ctrlKey;
+    if (mode === "shift") return evt.shiftKey;
+    if (mode === "meta") return evt.metaKey;
+    if (mode === "alt-ctrl") return evt.altKey && evt.ctrlKey;
+    if (mode === "alt-shift") return evt.altKey && evt.shiftKey;
+    return false;
   }
 
   private async openSidebarAndFocus(timerId: string) {
@@ -70,6 +127,5 @@ export class InlineMarkerManager {
       if (newLeaves.length > 0 && newLeaves[0]) {
           this.app.workspace.revealLeaf(newLeaves[0]);
       }
-      // TODO: scroll to card
   }
 }

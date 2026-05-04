@@ -29,7 +29,7 @@ export default class TaskGeniusTimerPlugin extends Plugin {
     this.timerService = new TimerService(this.dataStore);
     this.taskLocator = new TaskLocator(this.app);
     this.archiveWatcher = new TaskArchiveWatcher(this.app, this.timerService, this.taskLocator, this.dataStore.data.settings);
-    this.popoverManager = new TimerPopover(this.timerService);
+    this.popoverManager = new TimerPopover(this, this.timerService);
     this.reportingService = new ReportingService(() => this.dataStore.timers);
     this.provider = new InternalTimerProvider();
 

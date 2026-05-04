@@ -9,7 +9,12 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   defaultSidebarSort: "newest",
   showArchivedTimers: true,
   hoverPopupEnabled: true,
-  hoverModifierKey: "Alt",
+  hoverTriggerMode: "hover",
+  hoverOpenDelayMs: 180,
+  hoverCloseDelayMs: 220,
+  popoverPersistent: true,
+  popoverClickOutsideCloses: true,
+  clickAction: "sidebar",
   exportFolder: "",
   providerSelection: "internal",
 };

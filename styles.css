@@ -74,14 +74,40 @@
 }
 
 .ttimer-popover {
-  position: absolute;
-  z-index: var(--layer-popover);
+  position: fixed;
+  z-index: calc(var(--layer-popover) + 10);
   background-color: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   box-shadow: var(--shadow-l);
   border-radius: 6px;
   padding: 10px;
   min-width: 200px;
+}
+
+.ttimer-popover-badge {
+  text-align: center;
+  font-size: 0.85em;
+  font-weight: bold;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.ttimer-popover-badge--running { color: var(--color-green); }
+.ttimer-popover-badge--paused { color: var(--color-yellow); }
+.ttimer-popover-badge--stopped { color: var(--color-red); }
+.ttimer-popover-badge--archived { color: var(--text-muted); }
+
+.ttimer-popover-close {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: 1.2em;
+}
+
+.ttimer-popover-open-sidebar {
+  width: 100%;
 }
 
 .ttimer-popover-text {
