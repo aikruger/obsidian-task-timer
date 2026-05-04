@@ -1,8 +1,103 @@
-/*
+.ttimer-inline-marker {
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+  margin: 0 4px;
+  font-weight: bold;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.ttimer-inline-marker--running {
+  color: var(--color-green);
+  background-color: var(--color-green-10);
+}
 
-If your plugin does not need CSS, delete this file.
+.ttimer-inline-marker--paused {
+  color: var(--color-yellow);
+  background-color: var(--color-yellow-10);
+}
 
-*/
+.ttimer-inline-marker--stopped {
+  color: var(--color-red);
+  background-color: var(--color-red-10);
+}
+
+.ttimer-inline-marker--archived {
+  color: var(--text-muted);
+  background-color: var(--background-modifier-hover);
+}
+
+.ttimer-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background-color: var(--background-secondary);
+}
+
+.ttimer-card--running {
+  border-left: 4px solid var(--color-green);
+}
+
+.ttimer-card--paused {
+  border-left: 4px solid var(--color-yellow);
+}
+
+.ttimer-card--stopped {
+  border-left: 4px solid var(--color-red);
+}
+
+.ttimer-card--archived {
+  border-left: 4px solid var(--text-muted);
+  opacity: 0.7;
+}
+
+.ttimer-card-text {
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+
+.ttimer-card-time {
+  font-family: var(--font-monospace);
+  font-size: 1.2em;
+  margin-bottom: 8px;
+}
+
+.ttimer-card-buttons {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.ttimer-card-buttons button {
+  padding: 4px 8px;
+  font-size: 0.85em;
+}
+
+.ttimer-popover {
+  position: absolute;
+  z-index: var(--layer-popover);
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: var(--shadow-l);
+  border-radius: 6px;
+  padding: 10px;
+  min-width: 200px;
+}
+
+.ttimer-popover-text {
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+
+.ttimer-popover-time {
+  font-family: var(--font-monospace);
+  font-size: 1.2em;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.ttimer-popover-buttons {
+  display: flex;
+  gap: 5px;
+  justify-content: center;
+}

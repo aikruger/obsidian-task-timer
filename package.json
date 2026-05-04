@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-sample-plugin",
+	"name": "obsidian-task-genius-timer",
 	"version": "1.0.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"description": "Task timer plugin for Obsidian",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

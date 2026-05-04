@@ -1,99 +1,234 @@
-import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
-import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
+import { Plugin, WorkspaceLeaf, Notice, TFile, Editor } from "obsidian";
+import { PluginData, TaskTimerRecord } from "./types/models";
+import { DEFAULT_SETTINGS } from "./settings/plugin-settings";
+import { TaskTimerSettingTab } from "./settings/settings-tab";
+import { DataStore } from "./persistence/data-store";
+import { TimerService } from "./domain/timer-service";
+import { TaskLocator } from "./domain/task-locator";
+import { TaskArchiveWatcher } from "./domain/task-archive-watcher";
+import { TASK_TIMER_VIEW_TYPE, TaskTimerView } from "./views/task-timer-view";
+import { InlineMarkerManager } from "./ui/inline-marker-manager";
+import { TimerPopover } from "./ui/timer-popover";
+import { ReportingService } from "./reporting/reporting-service";
+import { generateBlockId } from "./utils/block-id";
+import { InternalTimerProvider } from "./providers/internal-timer-provider";
+import { StatsModal } from "./views/stats-modal";
 
-// Remember to rename these classes and interfaces!
+export default class TaskGeniusTimerPlugin extends Plugin {
+  public dataStore: DataStore;
+  public timerService: TimerService;
+  public taskLocator: TaskLocator;
+  public archiveWatcher: TaskArchiveWatcher;
+  public popoverManager: TimerPopover;
+  public reportingService: ReportingService;
+  public provider: InternalTimerProvider;
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+  async onload() {
+    await this.loadPluginData();
 
-	async onload() {
-		await this.loadSettings();
+    this.timerService = new TimerService(this.dataStore);
+    this.taskLocator = new TaskLocator(this.app);
+    this.archiveWatcher = new TaskArchiveWatcher(this.app, this.timerService, this.taskLocator, this.dataStore.data.settings);
+    this.popoverManager = new TimerPopover(this.timerService);
+    this.reportingService = new ReportingService(() => this.dataStore.timers);
+    this.provider = new InternalTimerProvider();
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
+    this.addSettingTab(new TaskTimerSettingTab(this.app, this, this.dataStore.data.settings));
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
+    this.registerView(TASK_TIMER_VIEW_TYPE, (leaf) => new TaskTimerView(leaf, this.timerService, this));
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				editor.replaceSelection('Sample editor command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+    const inlineMarkerManager = new InlineMarkerManager(this.app, this.timerService, this);
+    this.registerMarkdownPostProcessor((el, ctx) => inlineMarkerManager.postProcessor(el, ctx));
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-				return false;
-			}
-		});
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (file instanceof TFile && file.extension === "md") {
+          this.archiveWatcher.handleFileModify(file);
+        }
+      })
+    );
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+    this.addCommand({
+      id: "attach-timer-to-current-task",
+      name: "Attach timer to current task",
+      editorCallback: async (editor: Editor, view) => {
+         const taskInfo = this.taskLocator.getTaskAtCursor(editor);
+         if (!taskInfo || !taskInfo.isTask) {
+             new Notice("Cursor is not on a markdown task line.");
+             return;
+         }
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			new Notice("Click");
-		});
+         let blockId = taskInfo.blockId;
+         const lineText = editor.getLine(taskInfo.line);
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+         if (!blockId) {
+             blockId = generateBlockId(this.dataStore.data.settings.blockIdPrefix);
+             const marker = this.dataStore.data.settings.markerStyle === "icon" ? " ⏱ " :
+                            this.dataStore.data.settings.markerStyle === "text" ? " ⏱ " : " [⏱] ";
 
-	}
+             const updatedLine = lineText + marker + blockId;
+             editor.setLine(taskInfo.line, updatedLine);
+         } else {
+             // Check if timer already exists for this block ID
+             const allTimers = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
+             const existing = allTimers.find(t => t.anchor.blockId === blockId);
+             if (existing) {
+                 this.openSidebar();
+                 return;
+             }
+         }
 
-	onunload() {
-	}
+         const newTimer: TaskTimerRecord = {
+             id: Math.random().toString(36).substring(2, 9),
+             anchor: {
+                 filePath: view.file?.path || "",
+                 line: taskInfo.line,
+                 blockId: blockId,
+                 taskTextSnapshot: taskInfo.text
+             },
+             state: "stopped",
+             createdAt: Date.now(),
+             updatedAt: Date.now(),
+             segments: [],
+             totalMsCached: 0,
+             iconInserted: true
+         };
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
-	}
+         this.timerService.createTimer(newTimer);
+         new Notice("Timer attached");
+         this.openSidebar();
+      }
+    });
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
+    this.addCommand({
+      id: "start-timer-for-current-task",
+      name: "Start timer for current task",
+      editorCallback: (editor: Editor, view) => {
+         const taskInfo = this.taskLocator.getTaskAtCursor(editor);
+         if (taskInfo && taskInfo.blockId) {
+             const allTimers = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
+             const timer = allTimers.find(t => t.anchor.blockId === taskInfo.blockId);
+             if (timer) {
+                 this.timerService.start(timer.id);
+                 new Notice("Timer started");
+             } else {
+                 new Notice("No timer found for this task.");
+             }
+         }
+      }
+    });
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+    this.addCommand({
+      id: "pause-timer-for-current-task",
+      name: "Pause timer for current task",
+      editorCallback: (editor: Editor, view) => {
+         const taskInfo = this.taskLocator.getTaskAtCursor(editor);
+         if (taskInfo && taskInfo.blockId) {
+             const allTimers = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
+             const timer = allTimers.find(t => t.anchor.blockId === taskInfo.blockId);
+             if (timer) {
+                 this.timerService.pause(timer.id);
+                 new Notice("Timer paused");
+             }
+         }
+      }
+    });
 
-	onOpen() {
-		let {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+    this.addCommand({
+      id: "stop-timer-for-current-task",
+      name: "Stop timer for current task",
+      editorCallback: (editor: Editor, view) => {
+         const taskInfo = this.taskLocator.getTaskAtCursor(editor);
+         if (taskInfo && taskInfo.blockId) {
+             const allTimers = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
+             const timer = allTimers.find(t => t.anchor.blockId === taskInfo.blockId);
+             if (timer) {
+                 this.timerService.stop(timer.id);
+                 new Notice("Timer stopped");
+             }
+         }
+      }
+    });
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
+    this.addCommand({
+      id: "archive-timer-for-current-task",
+      name: "Archive timer for current task",
+      editorCallback: (editor: Editor, view) => {
+         const taskInfo = this.taskLocator.getTaskAtCursor(editor);
+         if (taskInfo && taskInfo.blockId) {
+             const allTimers = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
+             const timer = allTimers.find(t => t.anchor.blockId === taskInfo.blockId);
+             if (timer) {
+                 this.timerService.archive(timer.id);
+                 new Notice("Timer archived");
+             }
+         }
+      }
+    });
+
+    this.addCommand({
+        id: "open-task-timer-sidebar",
+        name: "Open task timer sidebar",
+        callback: () => this.openSidebar()
+    });
+
+    this.addCommand({
+        id: "show-timer-statistics",
+        name: "Show timer statistics",
+        callback: () => {
+            new StatsModal(this.app, this.timerService).open();
+        }
+    });
+
+    this.addCommand({
+        id: "export-timer-data",
+        name: "Export timer data (CSV)",
+        callback: async () => {
+             const csv = this.reportingService.exportCSV();
+             const folderPath = this.dataStore.data.settings.exportFolder;
+             const filePath = folderPath ? `${folderPath}/timer-export-${Date.now()}.csv` : `timer-export-${Date.now()}.csv`;
+
+             try {
+                 await this.app.vault.create(filePath, csv);
+                 new Notice(`Exported to ${filePath}`);
+             } catch (e) {
+                 new Notice(`Failed to export: ${e}`);
+             }
+        }
+    });
+  }
+
+  async onunload() {
+    this.popoverManager.hidePopover();
+    // Ensure last state changes are saved immediately
+    await this.dataStore.saveImmediate();
+  }
+
+  async loadPluginData() {
+    const rawData = await this.loadData();
+    const data: PluginData = Object.assign(
+      { version: 1, timers: [], settings: DEFAULT_SETTINGS },
+      rawData
+    );
+    // basic migration stub
+    this.dataStore = new DataStore(this, data);
+  }
+
+  async saveSettings() {
+    await this.dataStore.save();
+  }
+
+  async openSidebar() {
+      const leaves = this.app.workspace.getLeavesOfType(TASK_TIMER_VIEW_TYPE);
+      if (leaves.length === 0) {
+          const rightLeaf = this.app.workspace.getRightLeaf(false);
+          if (rightLeaf) {
+              await rightLeaf.setViewState({ type: TASK_TIMER_VIEW_TYPE });
+          }
+      }
+      const newLeaves = this.app.workspace.getLeavesOfType(TASK_TIMER_VIEW_TYPE);
+      if (newLeaves.length > 0 && newLeaves[0]) {
+          this.app.workspace.revealLeaf(newLeaves[0]);
+      }
+  }
 }
