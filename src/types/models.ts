@@ -41,12 +41,12 @@ export interface PluginSettings {
   defaultSidebarSort: "newest" | "oldest";
   showArchivedTimers: boolean;
   hoverPopupEnabled: boolean;
-  hoverTriggerMode: "hover" | "alt" | "ctrl" | "shift" | "meta" | "alt-ctrl" | "alt-shift" | "click" | "none";
+  hoverTriggerMode: "hover" | "alt" | "ctrl" | "shift" | "meta" | "alt-ctrl" | "alt-shift" | "none";
   hoverOpenDelayMs: number;
   hoverCloseDelayMs: number;
   popoverPersistent: boolean;
   popoverClickOutsideCloses: boolean;
-  clickAction: "sidebar" | "popover" | "both";
+  clickAction: "none" | "sidebar" | "popover" | "both";
   exportFolder: string;
   providerSelection: "internal" | "timekeep" | "legacy-task-timer";
 }

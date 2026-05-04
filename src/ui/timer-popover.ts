@@ -5,6 +5,8 @@ import TaskGeniusTimerPlugin from "../main";
 export class TimerPopover {
   public popoverEl: HTMLElement | null = null;
   public currentTimerId: string | null = null;
+  public currentAnchorEl: HTMLElement | null = null;
+  public openedAt: number = 0;
   public intervalId: number | null = null;
   public showTimeout: number | null = null;
   public hideTimeout: number | null = null;
@@ -12,15 +14,32 @@ export class TimerPopover {
   public pointerInsidePopover = false;
 
   constructor(private plugin: TaskGeniusTimerPlugin, private timerService: TimerService) {
+    this.currentAnchorEl = null;
+    this.openedAt = 0;
     this.handleGlobalClick = this.handleGlobalClick.bind(this);
     this.handleGlobalKeydown = this.handleGlobalKeydown.bind(this);
+  }
+
+  public togglePopover(anchorEl: HTMLElement, timerId: string) {
+    if (this.popoverEl && this.currentTimerId === timerId) {
+      console.debug("[ttimer] togglePopover -> hide", timerId);
+      this.hidePopover();
+      return;
+    }
+    console.debug("[ttimer] togglePopover -> show", timerId);
+    this.showPopover(anchorEl, timerId);
   }
 
   public scheduleShow(anchorEl: HTMLElement, timerId: string, evt?: MouseEvent) {
     this.cancelHide();
     if (this.showTimeout) window.clearTimeout(this.showTimeout);
+
     const delay = this.plugin.dataStore.data.settings.hoverOpenDelayMs ?? 180;
-    this.showTimeout = window.setTimeout(() => this.showPopover(anchorEl, timerId), delay);
+    console.debug("[ttimer] scheduleShow", { timerId, delay });
+
+    this.showTimeout = window.setTimeout(() => {
+      this.showPopover(anchorEl, timerId);
+    }, delay);
   }
 
   public scheduleHide() {
@@ -41,23 +60,32 @@ export class TimerPopover {
     }
   }
 
-  public showPopover(targetEl: HTMLElement, timerId: string) {
-    this.hidePopover();
-
+  public showPopover(anchorEl: HTMLElement, timerId: string) {
     const timer = this.timerService.getTimer(timerId);
-    if (!timer) return;
+    if (!timer) {
+      console.debug("[ttimer] showPopover aborted: timer missing", timerId);
+      return;
+    }
+
+    if (this.popoverEl) this.hidePopover();
 
     this.currentTimerId = timerId;
+    this.currentAnchorEl = anchorEl;
+    this.openedAt = Date.now();
 
     this.popoverEl = document.body.createEl("div", { cls: "ttimer-popover" });
-    const rect = targetEl.getBoundingClientRect();
+    console.debug("[ttimer] showPopover created", { timerId });
+
+    const rect = anchorEl.getBoundingClientRect();
 
     let top = rect.bottom + 6;
     let left = rect.left;
 
     const width = 240;
+    const estimatedHeight = 180;
+
     if (left + width > window.innerWidth - 12) left = window.innerWidth - width - 12;
-    if (top + 160 > window.innerHeight - 12) top = rect.top - 160 - 6;
+    if (top + estimatedHeight > window.innerHeight - 12) top = Math.max(12, rect.top - estimatedHeight - 6);
 
     this.popoverEl.style.top = `${top}px`;
     this.popoverEl.style.left = `${left}px`;
@@ -76,11 +104,15 @@ export class TimerPopover {
       this.scheduleHide();
     });
 
-    document.addEventListener("click", this.handleGlobalClick);
-    document.addEventListener("keydown", this.handleGlobalKeydown);
+    window.setTimeout(() => {
+      document.addEventListener("click", this.handleGlobalClick);
+      document.addEventListener("keydown", this.handleGlobalKeydown);
+    }, 0);
   }
 
   public hidePopover() {
+    console.debug("[ttimer] hidePopover", this.currentTimerId);
+
     if (this.popoverEl) {
       this.popoverEl.remove();
       this.popoverEl = null;
@@ -95,7 +127,10 @@ export class TimerPopover {
     }
     this.cancelHide();
     this.currentTimerId = null;
+    this.currentAnchorEl = null;
+    this.openedAt = 0;
     this.pointerInsidePopover = false;
+    this.pointerInsideMarker = false;
 
     document.removeEventListener("click", this.handleGlobalClick);
     document.removeEventListener("keydown", this.handleGlobalKeydown);
@@ -103,6 +138,8 @@ export class TimerPopover {
 
   private render() {
     if (!this.popoverEl || !this.currentTimerId) return;
+
+    console.debug("[ttimer] render popover", this.currentTimerId);
 
     const timer = this.timerService.getTimer(this.currentTimerId);
     if (!timer) {
@@ -163,15 +200,26 @@ export class TimerPopover {
     };
   }
 
-  private handleGlobalClick(e: MouseEvent) {
+  private handleGlobalClick(evt: MouseEvent) {
     if (!this.plugin.dataStore.data.settings.popoverClickOutsideCloses) return;
-    if (this.popoverEl && !this.popoverEl.contains(e.target as Node)) {
-      this.hidePopover();
+    if (!this.popoverEl) return;
+
+    if (Date.now() - this.openedAt < 100) {
+      console.debug("[ttimer] ignoring global click immediately after open");
+      return;
     }
+
+    const target = evt.target as Node;
+    if (this.popoverEl.contains(target)) return;
+    if (this.currentAnchorEl && this.currentAnchorEl.contains && this.currentAnchorEl.contains(target)) return;
+
+    console.debug("[ttimer] outside click -> hide");
+    this.hidePopover();
   }
 
-  private handleGlobalKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
+  private handleGlobalKeydown(evt: KeyboardEvent) {
+    if (evt.key === "Escape") {
+      console.debug("[ttimer] Escape -> hide");
       this.hidePopover();
     }
   }

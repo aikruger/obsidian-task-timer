@@ -10,10 +10,15 @@ export class InlineMarkerManager {
 
     textNodes.forEach(node => {
        const textContent = node.textContent || "";
-       const blockIdMatch = textContent.match(/\^([a-zA-Z0-9-]+)$/);
+       const match = textContent.match(/\^([a-zA-Z0-9-]+)/);
 
-       if (blockIdMatch) {
-           const blockId = `^${blockIdMatch[1]}`;
+       if (match) {
+           if (node.querySelector(".ttimer-inline-marker")) return;
+
+           console.debug("[ttimer] postProcessor li", { text: textContent });
+           console.debug("[ttimer] matched block id", match[1]);
+
+           const blockId = `^${match[1]}`;
            const allTimers = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
            const timer = allTimers.find(t => t.anchor.blockId === blockId);
 
@@ -25,6 +30,7 @@ export class InlineMarkerManager {
   }
 
   private findTimerMarkerNode(root: Node): Node | null {
+    if ((root as HTMLElement).querySelector && (root as HTMLElement).querySelector(".ttimer-inline-marker")) return null;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     let node;
     while ((node = walker.nextNode())) {
@@ -32,10 +38,13 @@ export class InlineMarkerManager {
         return node;
       }
     }
+    console.debug("[ttimer] no marker text node found", root.textContent);
     return null;
   }
 
   private enhanceMarker(node: HTMLElement, timer: import("../types/models").TaskTimerRecord) {
+      if (node.querySelector(`.ttimer-inline-marker[data-timer-id="${timer.id}"]`)) return;
+
       const textNode = this.findTimerMarkerNode(node);
 
       if (textNode && textNode.parentNode) {
@@ -49,22 +58,30 @@ export class InlineMarkerManager {
               const beforeText = nodeValue.substring(0, markerIndex);
               const afterText = nodeValue.substring(markerIndex + 1);
 
-              const beforeNode = document.createTextNode(beforeText);
-              const afterNode = document.createTextNode(afterText);
+              if (beforeText) {
+                  parent.insertBefore(document.createTextNode(beforeText), textNode);
+              }
 
               const marker = document.createElement("span");
               marker.className = `ttimer-inline-marker ttimer-inline-marker--${timer.state}`;
               marker.dataset.timerId = timer.id;
               marker.textContent = "⏱";
+              marker.title = `Task Timer: ${timer.anchor.taskTextSnapshot}`;
 
-              parent.insertBefore(beforeNode, textNode);
               parent.insertBefore(marker, textNode);
-              parent.insertBefore(afterNode, textNode);
+
+              if (afterText) {
+                  parent.insertBefore(document.createTextNode(afterText), textNode);
+              }
+
               parent.removeChild(textNode);
+
+              console.debug("[ttimer] enhanced marker", { timerId: timer.id, task: timer.anchor.taskTextSnapshot });
 
               marker.addEventListener("click", (e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  console.debug("[ttimer] marker click", timer.id);
                   this.handleClick(e, timer.id, marker);
               });
 
@@ -84,20 +101,24 @@ export class InlineMarkerManager {
   }
 
   private handleClick(e: MouseEvent, timerId: string, anchorEl: HTMLElement) {
-    const action = this.plugin.dataStore.data.settings.clickAction;
-    const mode = this.plugin.dataStore.data.settings.hoverTriggerMode;
+    const clickAction = this.plugin.dataStore.data.settings.clickAction;
+    console.debug("[ttimer] handleClick", { timerId, clickAction });
 
-    if (mode === "click") {
-        // In click mode, the click opens the popover, ignore action setting
-        this.plugin.popoverManager.showPopover(anchorEl, timerId);
-        return;
+    if (clickAction === "none") return;
+
+    if (clickAction === "sidebar") {
+      this.openSidebarAndFocus(timerId);
+      return;
     }
 
-    if (action === "sidebar" || action === "both") {
-        this.openSidebarAndFocus(timerId);
+    if (clickAction === "popover") {
+      this.plugin.popoverManager.togglePopover(anchorEl, timerId);
+      return;
     }
-    if (action === "popover" || action === "both") {
-        this.plugin.popoverManager.showPopover(anchorEl, timerId);
+
+    if (clickAction === "both") {
+      this.openSidebarAndFocus(timerId);
+      this.plugin.popoverManager.showPopover(anchorEl, timerId);
     }
   }
 
@@ -105,7 +126,6 @@ export class InlineMarkerManager {
     const mode = this.plugin.dataStore.data.settings.hoverTriggerMode;
     if (mode === "none") return false;
     if (mode === "hover") return true;
-    if (mode === "click") return false; // Handled by click listener
     if (mode === "alt") return evt.altKey;
     if (mode === "ctrl") return evt.ctrlKey;
     if (mode === "shift") return evt.shiftKey;

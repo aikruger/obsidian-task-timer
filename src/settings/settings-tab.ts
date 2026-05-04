@@ -126,10 +126,9 @@ export class TaskTimerSettingTab extends PluginSettingTab {
         dropdown.addOption("meta", "Meta + hover");
         dropdown.addOption("alt-ctrl", "Alt+Ctrl + hover");
         dropdown.addOption("alt-shift", "Alt+Shift + hover");
-        dropdown.addOption("click", "Click on marker");
         dropdown.addOption("none", "None");
         dropdown.setValue(this.settings.hoverTriggerMode);
-        dropdown.onChange(async (value: "hover" | "alt" | "ctrl" | "shift" | "meta" | "alt-ctrl" | "alt-shift" | "click" | "none") => {
+        dropdown.onChange(async (value: "hover" | "alt" | "ctrl" | "shift" | "meta" | "alt-ctrl" | "alt-shift" | "none") => {
           this.settings.hoverTriggerMode = value;
           await this.plugin.saveSettings();
         });
@@ -139,11 +138,12 @@ export class TaskTimerSettingTab extends PluginSettingTab {
       .setName("Click action")
       .setDesc("Action when clicking the marker.")
       .addDropdown((dropdown) => {
+        dropdown.addOption("none", "None");
         dropdown.addOption("sidebar", "Open sidebar");
         dropdown.addOption("popover", "Open popover");
         dropdown.addOption("both", "Both");
         dropdown.setValue(this.settings.clickAction);
-        dropdown.onChange(async (value: "sidebar" | "popover" | "both") => {
+        dropdown.onChange(async (value: "none" | "sidebar" | "popover" | "both") => {
           this.settings.clickAction = value;
           await this.plugin.saveSettings();
         });
