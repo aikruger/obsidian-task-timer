@@ -27,7 +27,7 @@ export class InlineMarkerManager {
     });
   }
 
-  private enhanceMarker(node: HTMLElement, timer: unknown) {
+  private enhanceMarker(node: HTMLElement, timer: import("../types/models").TaskTimerRecord) {
       // Very basic approach: search for ⏱ and wrap it.
       // In a robust implementation we'd walk the DOM tree to replace the exact text node.
       if (node.innerHTML.includes("⏱")) {

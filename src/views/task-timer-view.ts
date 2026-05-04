@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf } from "obsidian";
+import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
 import { TimerService } from "../domain/timer-service";
 import { formatDurationMs } from "../domain/time-format";
 import TaskGeniusTimerPlugin from "../main";
@@ -93,9 +93,9 @@ export class TaskTimerView extends ItemView {
       const openTaskBtn = btnContainer.createEl("button", { text: "Open Task" });
       openTaskBtn.onclick = async () => {
          const file = this.app.vault.getAbstractFileByPath(timer.anchor.filePath);
-         if (file) {
+         if (file && file instanceof TFile) {
              const leaf = this.app.workspace.getLeaf(false);
-             await leaf.openFile(file as unknown);
+             await leaf.openFile(file);
              // In a real implementation we'd scroll to the line/block
          }
       };
