@@ -1,10 +1,10 @@
 {
 	"id": "obsidian-task-genius-timer",
-	"name": "Task Genius Timer",
+	"name": "obsidian task timer",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
 	"description": "Task timer built around markdown task lines with block references, export, and right-sidebar panel.",
-	"author": "Obsidian",
+	"author": "aikruger",
 	"authorUrl": "https://obsidian.md",
 	"fundingUrl": "https://obsidian.md/pricing",
 	"isDesktopOnly": false
