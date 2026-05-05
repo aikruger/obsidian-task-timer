@@ -105,6 +105,20 @@ export class TaskTimerView extends ItemView {
         this.timerService.archive(timer.id);
         this.render();
       };
+
+      const deleteBtn = btnContainer.createEl("button", { text: "Delete" });
+      deleteBtn.addClass("ttimer-btn-danger");
+      deleteBtn.onclick = async () => {
+        if (timer.state === "running") {
+          this.timerService.stop(timer.id);
+        }
+
+        const confirmed = window.confirm(`Delete timer for "${timer.anchor.taskTextSnapshot}"? This removes it from plugin records.`);
+        if (!confirmed) return;
+
+        await this.plugin.deleteTimerAndMaybeCleanup(timer.id, { removeMarker: false, removeBlockId: false });
+        this.render();
+      };
     });
 
     if (this.plugin.dataStore.data.settings.showArchivedTimers) {
@@ -120,6 +134,17 @@ export class TaskTimerView extends ItemView {
                 card.createEl("div", { text: timer.anchor.taskTextSnapshot, cls: "ttimer-card-text" });
                 const elapsed = this.timerService.getElapsedMs(timer.id);
                 card.createEl("div", { text: formatDurationMs(elapsed), cls: "ttimer-card-time" });
+
+                const btnContainer = card.createEl("div", { cls: "ttimer-card-buttons" });
+                const deleteBtn = btnContainer.createEl("button", { text: "Delete" });
+                deleteBtn.addClass("ttimer-btn-danger");
+                deleteBtn.onclick = async () => {
+                  const confirmed = window.confirm(`Delete timer for "${timer.anchor.taskTextSnapshot}"? This removes it from plugin records.`);
+                  if (!confirmed) return;
+
+                  await this.plugin.deleteTimerAndMaybeCleanup(timer.id, { removeMarker: false, removeBlockId: false });
+                  this.render();
+                };
             });
         }
     }

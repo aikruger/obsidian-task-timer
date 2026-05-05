@@ -14,7 +14,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   hoverCloseDelayMs: 220,
   popoverPersistent: true,
   popoverClickOutsideCloses: true,
-  clickAction: "sidebar",
+  clickAction: "both",
   exportFolder: "",
   providerSelection: "internal",
 };

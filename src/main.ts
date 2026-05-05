@@ -58,24 +58,23 @@ export default class TaskGeniusTimerPlugin extends Plugin {
              return;
          }
 
-         let blockId = taskInfo.blockId;
-         const lineText = editor.getLine(taskInfo.line);
+         let existingBlockId = taskInfo.blockId;
+         let blockId = existingBlockId;
+         const currentLine = editor.getLine(taskInfo.line);
 
-         if (!blockId) {
-             blockId = generateBlockId(this.dataStore.data.settings.blockIdPrefix);
-             const marker = this.dataStore.data.settings.markerStyle === "icon" ? " ⏱ " :
-                            this.dataStore.data.settings.markerStyle === "text" ? " ⏱ " : " [⏱] ";
+         if (blockId) {
+             const existingTimer = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()]
+                 .find(timer => timer.anchor.blockId === blockId);
 
-             const updatedLine = lineText + marker + blockId;
-             editor.setLine(taskInfo.line, updatedLine);
-         } else {
-             // Check if timer already exists for this block ID
-             const allTimers = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
-             const existing = allTimers.find(t => t.anchor.blockId === blockId);
-             if (existing) {
+             if (existingTimer) {
                  this.openSidebar();
                  return;
              }
+         } else {
+             blockId = generateBlockId(this.dataStore.data.settings.blockIdPrefix);
+             const marker = this.dataStore.data.settings.markerStyle === "token" ? " [⏱] " : " ⏱ ";
+             const updatedLine = currentLine + marker + blockId;
+             editor.setLine(taskInfo.line, updatedLine);
          }
 
          const newTimer: TaskTimerRecord = {
@@ -83,7 +82,7 @@ export default class TaskGeniusTimerPlugin extends Plugin {
              anchor: {
                  filePath: view.file?.path || "",
                  line: taskInfo.line,
-                 blockId: blockId,
+                 blockId: blockId, // Exactly the block ID including leading ^
                  taskTextSnapshot: taskInfo.text
              },
              state: "stopped",
@@ -167,6 +166,69 @@ export default class TaskGeniusTimerPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "delete-timer-for-current-task",
+      name: "Delete timer for current task",
+      editorCallback: async (editor: Editor) => {
+        const task = this.taskLocator.getTaskAtCursor(editor);
+        if (!task || !task.blockId) {
+          new Notice("No timer-linked task found at cursor.");
+          return;
+        }
+
+        const timer = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()]
+          .find(t => t.anchor.blockId === task.blockId);
+
+        if (!timer) {
+          new Notice("No timer found for this task.");
+          return;
+        }
+
+        const confirmed = window.confirm(`Delete timer for "${timer.anchor.taskTextSnapshot}"?`);
+        if (!confirmed) return;
+
+        await this.deleteTimerAndMaybeCleanup(timer.id, { removeMarker: false, removeBlockId: false });
+        new Notice("Timer deleted.");
+      }
+    });
+
+    this.addCommand({
+      id: "delete-orphaned-timers",
+      name: "Delete orphaned timers",
+      callback: async () => {
+        const allTimers = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
+        const invalidTimers = [];
+
+        for (const timer of allTimers) {
+           const file = this.app.vault.getAbstractFileByPath(timer.anchor.filePath);
+           if (!file || !(file instanceof TFile)) {
+               invalidTimers.push(timer);
+               continue;
+           }
+           if (timer.anchor.blockId) {
+               const content = await this.app.vault.read(file);
+               if (!content.includes(timer.anchor.blockId)) {
+                   invalidTimers.push(timer);
+               }
+           }
+        }
+
+        if (invalidTimers.length === 0) {
+            new Notice("No orphaned timers found.");
+            return;
+        }
+
+        const confirmed = window.confirm(`Found ${invalidTimers.length} orphaned timers. Delete them?`);
+        if (confirmed) {
+            for (const timer of invalidTimers) {
+                this.timerService.delete(timer.id);
+            }
+            this.refreshTimerViews();
+            new Notice(`Deleted ${invalidTimers.length} orphaned timers.`);
+        }
+      }
+    });
+
+    this.addCommand({
         id: "open-task-timer-sidebar",
         name: "Open task timer sidebar",
         callback: () => this.openSidebar()
@@ -216,6 +278,75 @@ export default class TaskGeniusTimerPlugin extends Plugin {
 
   async saveSettings() {
     await this.dataStore.save();
+  }
+
+  async deleteTimerAndMaybeCleanup(timerId: string, options: { removeMarker?: boolean, removeBlockId?: boolean } = {}) {
+    const { removeMarker = false, removeBlockId = false } = options;
+    const timer = this.timerService.getTimer(timerId);
+    if (!timer) return;
+
+    if (this.popoverManager.currentTimerId === timerId) {
+      this.popoverManager.hidePopover();
+    }
+
+    this.timerService.delete(timerId);
+
+    if (removeMarker || removeBlockId) {
+      await this.cleanupTaskLine(timer, { removeMarker, removeBlockId });
+    }
+
+    this.refreshTimerViews();
+  }
+
+  async cleanupTaskLine(timer: TaskTimerRecord, options: { removeMarker: boolean, removeBlockId: boolean }) {
+    const file = this.app.vault.getAbstractFileByPath(timer.anchor.filePath);
+    if (!(file instanceof TFile)) return;
+
+    const content = await this.app.vault.read(file);
+    const lines = content.split("\n");
+    let targetIndex = -1;
+
+    if (timer.anchor.blockId) {
+      targetIndex = lines.findIndex(line => line.includes(timer.anchor.blockId as string));
+    }
+
+    if (targetIndex === -1 && Number.isInteger(timer.anchor.line) && lines[timer.anchor.line]) {
+      targetIndex = timer.anchor.line;
+    }
+
+    if (targetIndex === -1 || !lines[targetIndex]) return;
+
+    let line = lines[targetIndex] as string;
+
+    if (options.removeMarker) {
+      line = line.replace(/\s*\[?⏱\]?\s*/g, " ");
+      line = line.replace(/\s{2,}/g, " ").trimEnd();
+
+      const originalLine = lines[targetIndex];
+      if (originalLine && /^\s*-\s*\[[ xX]\]/.test(originalLine)) {
+        const leading = originalLine.match(/^(\s*-\s*\[[ xX]\]\s*)/);
+        if (leading) {
+          const rest = line.replace(/^(\s*-\s*\[[ xX]\]\s*)/, "");
+          line = leading[1] + rest;
+        }
+      }
+    }
+
+    if (options.removeBlockId && timer.anchor.blockId) {
+      line = line.replace(new RegExp(`\\s*\\${timer.anchor.blockId}$`), "");
+    }
+
+    lines[targetIndex] = line;
+    await this.app.vault.modify(file, lines.join("\n"));
+  }
+
+  refreshTimerViews() {
+    const leaves = this.app.workspace.getLeavesOfType(TASK_TIMER_VIEW_TYPE);
+    for (const leaf of leaves) {
+      if (leaf.view instanceof TaskTimerView) {
+        leaf.view.render();
+      }
+    }
   }
 
   async openSidebar() {

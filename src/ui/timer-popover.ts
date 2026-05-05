@@ -198,6 +198,32 @@ export class TimerPopover {
       this.hidePopover();
       this.plugin.openSidebar();
     };
+
+    const deleteBtn = this.popoverEl.createEl("button", {
+      text: "Delete",
+      cls: "ttimer-popover-delete"
+    });
+
+    deleteBtn.onclick = async (evt) => {
+      evt.stopPropagation();
+
+      const timerToDel = this.timerService.getTimer(timer.id);
+      if (!timerToDel) return;
+
+      if (timerToDel.state === "running") {
+        this.timerService.stop(timerToDel.id);
+      }
+
+      const confirmed = window.confirm(`Delete timer for "${timerToDel.anchor.taskTextSnapshot}"?`);
+      if (!confirmed) return;
+
+      await this.plugin.deleteTimerAndMaybeCleanup(timerToDel.id, {
+        removeMarker: false,
+        removeBlockId: false
+      });
+
+      this.hidePopover();
+    };
   }
 
   private handleGlobalClick(evt: MouseEvent) {

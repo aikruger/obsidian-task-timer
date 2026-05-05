@@ -106,8 +106,22 @@
   font-size: 1.2em;
 }
 
-.ttimer-popover-open-sidebar {
+.ttimer-popover-open-sidebar,
+.ttimer-popover-delete {
   width: 100%;
+  margin-top: 8px;
+}
+
+.ttimer-btn-danger,
+.ttimer-popover-delete {
+  background-color: var(--background-modifier-error);
+  color: var(--text-on-accent);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.ttimer-btn-danger:hover,
+.ttimer-popover-delete:hover {
+  filter: brightness(0.95);
 }
 
 .ttimer-popover-text {
@@ -126,4 +140,5 @@
   display: flex;
   gap: 5px;
   justify-content: center;
+  flex-wrap: wrap;
 }

@@ -77,27 +77,43 @@ export class InlineMarkerManager {
               parent.removeChild(textNode);
 
               console.debug("[ttimer] enhanced marker", { timerId: timer.id, task: timer.anchor.taskTextSnapshot });
-
-              marker.addEventListener("click", (e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  console.debug("[ttimer] marker click", timer.id);
-                  this.handleClick(e, timer.id, marker);
-              });
-
-              marker.addEventListener("mouseenter", (e) => {
-                  this.plugin.popoverManager.pointerInsideMarker = true;
-                  if (this.shouldOpenPopoverFromEvent(e)) {
-                      this.plugin.popoverManager.scheduleShow(marker, timer.id, e);
-                  }
-              });
-
-              marker.addEventListener("mouseleave", () => {
-                  this.plugin.popoverManager.pointerInsideMarker = false;
-                  this.plugin.popoverManager.scheduleHide();
-              });
+              this.bindMarkerEvents(marker, timer);
           }
+      } else {
+          const fallback = document.createElement("span");
+          fallback.className = `ttimer-inline-marker ttimer-inline-marker--${timer.state}`;
+          fallback.dataset.timerId = timer.id;
+          fallback.textContent = "⏱";
+          fallback.title = `Task Timer: ${timer.anchor.taskTextSnapshot}`;
+          node.appendChild(document.createTextNode(" "));
+          node.appendChild(fallback);
+
+          console.debug("[ttimer] enhanced fallback marker", { timerId: timer.id, task: timer.anchor.taskTextSnapshot });
+          this.bindMarkerEvents(fallback, timer);
       }
+  }
+
+  private bindMarkerEvents(markerEl: HTMLElement, timer: import("../types/models").TaskTimerRecord) {
+    markerEl.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      console.debug("[ttimer] marker click", timer.id);
+      this.handleClick(evt, timer.id, markerEl);
+    });
+
+    markerEl.addEventListener("mouseenter", (evt) => {
+      this.plugin.popoverManager.pointerInsideMarker = true;
+
+      if (!this.plugin.dataStore.data.settings.hoverPopupEnabled) return;
+      if (!this.shouldOpenPopoverFromEvent(evt)) return;
+
+      this.plugin.popoverManager.scheduleShow(markerEl, timer.id, evt);
+    });
+
+    markerEl.addEventListener("mouseleave", () => {
+      this.plugin.popoverManager.pointerInsideMarker = false;
+      this.plugin.popoverManager.scheduleHide();
+    });
   }
 
   private handleClick(e: MouseEvent, timerId: string, anchorEl: HTMLElement) {
