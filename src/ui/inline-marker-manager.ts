@@ -6,27 +6,35 @@ export class InlineMarkerManager {
   constructor(private app: App, private timerService: TimerService, private plugin: TaskGeniusTimerPlugin) {}
 
   public postProcessor(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
-    const textNodes = Array.from(el.querySelectorAll("li.task-list-item"));
+    const filePath = ctx.sourcePath;
 
-    textNodes.forEach(node => {
-       const textContent = node.textContent || "";
-       const match = textContent.match(/\^([a-zA-Z0-9-]+)/);
+    const allTimers = [
+      ...this.timerService.getActiveTimers(),
+      ...this.timerService.getArchivedTimers(),
+    ];
 
-       if (match) {
-           if (node.querySelector(".ttimer-inline-marker")) return;
+    const timersForFile = allTimers.filter(
+      (t) => t.anchor.filePath === filePath && t.anchor.blockId
+    );
 
-           console.debug("[ttimer] postProcessor li", { text: textContent });
-           console.debug("[ttimer] matched block id", match[1]);
+    for (const timer of timersForFile) {
+      if (!timer.anchor.blockId) continue;
 
-           const blockId = `^${match[1]}`;
-           const allTimers = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
-           const timer = allTimers.find(t => t.anchor.blockId === blockId);
+      const rawId = timer.anchor.blockId.replace(/^\^/, "");
+      // In newer Obsidian versions, blocks have a data-block-id attribute in reading view
+      const blockEl = el.querySelector<HTMLElement>(`[data-block-id="${rawId}"]`);
+      if (!blockEl) continue;
 
-           if (timer) {
-               this.enhanceMarker(node as HTMLElement, timer);
-           }
-       }
-    });
+      const li = blockEl.closest("li.task-list-item") ?? blockEl.closest("li");
+      if (!li) continue;
+
+      if (li.querySelector(`.ttimer-inline-marker[data-timer-id="${timer.id}"]`)) {
+        continue;
+      }
+
+      console.debug("[ttimer] postProcessor matched block element", { timerId: timer.id, rawId });
+      this.enhanceMarker(li as HTMLElement, timer);
+    }
   }
 
   private findTimerMarkerNode(root: Node): Node | null {
