@@ -14,6 +14,7 @@ class TimerMarkerWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
+    TOKEN_REGEX.lastIndex = 0;
     const match = TOKEN_REGEX.exec(this.rawToken);
     if (!match) return document.createElement("span");
 

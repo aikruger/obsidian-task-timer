@@ -3,7 +3,7 @@ export type TimerState = "running" | "paused" | "stopped" | "archived";
 export const TOKEN_NAMESPACE = "ttimer";
 
 // Regex to find token in a line
-export const TOKEN_REGEX = /⏱\(ttimer:([a-z0-9]+):(running|paused|stopped|archived):(\d+)\)/;
+export const TOKEN_REGEX = /⏱\(ttimer:([a-z0-9]+):(running|paused|stopped|archived):(\d+)\)/g;
 
 // Full token string builder
 export function buildToken(id: string, state: TimerState, baseMs: number): string {
@@ -12,6 +12,7 @@ export function buildToken(id: string, state: TimerState, baseMs: number): strin
 
 // Parse a token from a line — returns null if not found
 export function parseTokenFromLine(line: string): ParsedToken | null {
+  TOKEN_REGEX.lastIndex = 0;
   const match = TOKEN_REGEX.exec(line);
   if (!match) return null;
   const result = {
