@@ -67,7 +67,30 @@ export class AnalyticsView extends ItemView {
       archivedCount: archived.length,
     });
 
-    container.createEl("h3", { text: "Active timers" });
+    // Header row with refresh button
+    const headerRow = container.createDiv({ cls: "ttimer-view-header" });
+    headerRow.createEl("h3", { text: "Task Timers", cls: "ttimer-view-title" });
+
+    const refreshBtn = headerRow.createEl("button", {
+      cls: "ttimer-refresh-btn",
+      title: "Refresh — re-scan all files for timers"
+    });
+    refreshBtn.innerHTML = "↺";
+    refreshBtn.addEventListener("click", async () => {
+      console.log("[ttimer:analytics-view] refresh triggered by user");
+      refreshBtn.disabled = true;
+      refreshBtn.innerHTML = "…";
+      try {
+        this.plugin.tokenIndex = await import("../domain/hydration").then(m =>
+          m.hydrateTokenIndex(this.plugin.app, this.plugin.store)
+        );
+        await this.plugin.saveStore();
+        console.log("[ttimer:analytics-view] token index refreshed, re-rendering");
+        this.render();
+      } catch (e) {
+        console.error("[ttimer:analytics-view] refresh failed", e);
+      }
+    });
 
     if (active.length === 0) {
       container.createEl("p", {

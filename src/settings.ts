@@ -19,7 +19,7 @@ export class TaskTimerSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Task Timer Settings" });
+    new Setting(containerEl).setName("Task Timer Settings").setHeading();
 
     new Setting(containerEl)
       .setName("Archive on complete")

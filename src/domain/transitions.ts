@@ -48,8 +48,8 @@ export async function startTimer(
   console.log(`[ttimer] startTimer: token updated in file id=${id} newToken="${newToken}"`);
 
   if (tokenIndex[id]) {
-    tokenIndex[id]!.token.state = "running";
-    tokenIndex[id]!.token.baseMs = token.baseMs;
+    tokenIndex[id].token.state = "running";
+    tokenIndex[id].token.baseMs = token.baseMs;
   }
 
   // Append open segment to store
@@ -114,8 +114,8 @@ export async function pauseTimer(
   console.log(`[ttimer] pauseTimer: token updated newToken="${newToken}"`);
 
   if (tokenIndex[id]) {
-    tokenIndex[id]!.token.state = "paused";
-    tokenIndex[id]!.token.baseMs = newBaseMs;
+    tokenIndex[id].token.state = "paused";
+    tokenIndex[id].token.baseMs = newBaseMs;
   }
 
   await saveStore();
@@ -168,8 +168,8 @@ export async function stopTimer(
   console.log(`[ttimer] stopTimer: token updated newToken="${newToken}"`);
 
   if (tokenIndex[id]) {
-    tokenIndex[id]!.token.state = "stopped";
-    tokenIndex[id]!.token.baseMs = newBaseMs;
+    tokenIndex[id].token.state = "stopped";
+    tokenIndex[id].token.baseMs = newBaseMs;
   }
 
   await saveStore();
@@ -189,7 +189,7 @@ export async function archiveTimer(
   if (!location) {
     console.warn(`[ttimer] archiveTimer: token location not found for id=${id} — updating store meta only`);
     if (store.meta[id]) {
-      store.meta[id]!.archivedAt = Date.now();
+      store.meta[id].archivedAt = Date.now();
       await saveStore();
     }
     return;
@@ -199,7 +199,7 @@ export async function archiveTimer(
   const token = parseTokenFromLine(line);
   if (!token || token.state === "archived") {
     console.log(`[ttimer] archiveTimer: already archived or token missing, updating store meta only`);
-    if (store.meta[id]) store.meta[id]!.archivedAt = Date.now();
+    if (store.meta[id]) store.meta[id].archivedAt = Date.now();
     await saveStore();
     return;
   }
@@ -226,13 +226,53 @@ export async function archiveTimer(
   await writeLineToFile(file, lineNo, newLine, app);
   console.log(`[ttimer] archiveTimer: token updated newToken="${newToken}"`);
 
-  if (store.meta[id]) store.meta[id]!.archivedAt = now;
+  if (store.meta[id]) store.meta[id].archivedAt = now;
 
   if (tokenIndex[id]) {
-    tokenIndex[id]!.token.state = "archived";
-    tokenIndex[id]!.token.baseMs = newBaseMs;
+    tokenIndex[id].token.state = "archived";
+    tokenIndex[id].token.baseMs = newBaseMs;
   }
 
   await saveStore();
   console.log(`[ttimer] archiveTimer: complete for id=${id}`);
+}
+
+export async function deleteTimer(
+  id: string,
+  app: App,
+  store: PluginStore,
+  saveStore: () => Promise<void>,
+  tokenIndex: LiveTokenIndex
+): Promise<void> {
+  console.log(`[ttimer] deleteTimer: id=${id}`);
+
+  const location = await resolveTokenLocation(id, app, store);
+
+  if (location) {
+    const { file, lineNo, line } = location;
+    const token = parseTokenFromLine(line);
+    if (token) {
+      // Remove the token text from the line, trim trailing space
+      const newLine = line.replace(token.raw, "").replace(/\s+$/, "");
+      await writeLineToFile(file, lineNo, newLine, app);
+      console.log(`[ttimer] deleteTimer: token removed from file id=${id}`);
+    } else {
+      console.warn(`[ttimer] deleteTimer: token not found on resolved line id=${id}`);
+    }
+  } else {
+    console.warn(`[ttimer] deleteTimer: location not resolved for id=${id}, removing from store only`);
+  }
+
+  // Clean up store
+  delete store.segments[id];
+  delete store.meta[id];
+
+  // Clean up token index
+  if (tokenIndex[id]) {
+    delete tokenIndex[id];
+    console.log(`[ttimer] deleteTimer: removed from tokenIndex id=${id}`);
+  }
+
+  await saveStore();
+  console.log(`[ttimer] deleteTimer: complete id=${id}`);
 }

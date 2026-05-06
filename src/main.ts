@@ -75,6 +75,112 @@ export default class TaskTimerPlugin extends Plugin {
       },
     });
 
+// --- Attach timer to current task ---
+this.addCommand({
+  id: "attach-timer-to-task",
+  name: "Attach timer to current task",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] attach-timer-to-task triggered");
+    const file = ctx.file;
+    if (!file) {
+      new Notice("No active file.");
+      console.warn("[ttimer:cmd] attach-timer-to-task: no active file");
+      return;
+    }
+    const { attachTimerToCurrentTask } = await import("./editor/attach-timer");
+    const id = await attachTimerToCurrentTask(
+      editor,
+      file,
+      this.store,
+      this.saveStore.bind(this),
+      this.tokenIndex
+    );
+    if (id) {
+      new Notice("Timer attached.");
+      console.log(`[ttimer:cmd] attach-timer-to-task: attached id=${id}`);
+    }
+  },
+});
+
+// --- Start timer on current task ---
+this.addCommand({
+  id: "start-timer-on-task",
+  name: "Start timer on current task",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] start-timer-on-task triggered");
+    const file = ctx.file;
+    if (!file) return;
+    const { attachTimerToCurrentTask } = await import("./editor/attach-timer");
+    const { startTimer } = await import("./domain/transitions");
+    const id = await attachTimerToCurrentTask(editor, file, this.store, this.saveStore.bind(this), this.tokenIndex);
+    if (id) {
+      await startTimer(id, this.app, this.store, this.saveStore.bind(this), this.tokenIndex);
+      new Notice("Timer started.");
+      console.log(`[ttimer:cmd] start-timer-on-task: started id=${id}`);
+    }
+  },
+});
+
+// --- Pause timer on current task ---
+this.addCommand({
+  id: "pause-timer-on-task",
+  name: "Pause timer on current task",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] pause-timer-on-task triggered");
+    const file = ctx.file;
+    if (!file) return;
+    const { parseTokenFromLine } = await import("./types/token");
+    const { pauseTimer } = await import("./domain/transitions");
+    const cursor = editor.getCursor();
+    const line = editor.getLine(cursor.line);
+    const token = parseTokenFromLine(line);
+    if (!token) { new Notice("No timer on this line."); return; }
+    await pauseTimer(token.id, this.app, this.store, this.saveStore.bind(this), this.tokenIndex);
+    new Notice("Timer paused.");
+    console.log(`[ttimer:cmd] pause-timer-on-task: paused id=${token.id}`);
+  },
+});
+
+// --- Stop timer on current task ---
+this.addCommand({
+  id: "stop-timer-on-task",
+  name: "Stop timer on current task",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] stop-timer-on-task triggered");
+    const file = ctx.file;
+    if (!file) return;
+    const { parseTokenFromLine } = await import("./types/token");
+    const { stopTimer } = await import("./domain/transitions");
+    const cursor = editor.getCursor();
+    const line = editor.getLine(cursor.line);
+    const token = parseTokenFromLine(line);
+    if (!token) { new Notice("No timer on this line."); return; }
+    await stopTimer(token.id, this.app, this.store, this.saveStore.bind(this), this.tokenIndex);
+    new Notice("Timer stopped.");
+    console.log(`[ttimer:cmd] stop-timer-on-task: stopped id=${token.id}`);
+  },
+});
+
+// --- Archive timer on current task ---
+this.addCommand({
+  id: "archive-timer-on-task",
+  name: "Archive timer on current task",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] archive-timer-on-task triggered");
+    const file = ctx.file;
+    if (!file) return;
+    const { parseTokenFromLine } = await import("./types/token");
+    const { archiveTimer } = await import("./domain/transitions");
+    const cursor = editor.getCursor();
+    const line = editor.getLine(cursor.line);
+    const token = parseTokenFromLine(line);
+    if (!token) { new Notice("No timer on this line."); return; }
+    await archiveTimer(token.id, this.app, this.store, this.saveStore.bind(this), this.tokenIndex, "manual");
+    new Notice("Timer archived.");
+    console.log(`[ttimer:cmd] archive-timer-on-task: archived id=${token.id}`);
+  },
+});
+
     // File open event to refresh token index for that file if needed.
     this.registerEvent(
       this.app.workspace.on("file-open", async (file) => {
