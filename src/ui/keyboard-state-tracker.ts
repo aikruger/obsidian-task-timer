@@ -43,7 +43,7 @@ export class KeyboardStateTracker {
     if (!settings.hoverPopupEnabled) return;
 
     // Find a marker currently under the pointer
-    const marker = document.querySelector(".ttimer-inline-marker:hover");
+    const marker = document.querySelector<HTMLElement>(".ttimer-inline-marker:hover");
     if (!marker) return;
     const timerId = marker.dataset.timerId;
     if (!timerId) return;

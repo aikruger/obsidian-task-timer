@@ -3,11 +3,17 @@ import type { PluginSettings } from "../types/models";
 import TaskGeniusTimerPlugin from "../main";
 
 function detectPagePreviewCollision(app: App, mode: string): string | null {
+  type AppWithInternalPlugins = App & {
+    internalPlugins?: {
+      plugins?: Record<string, { enabled?: boolean }>;
+    };
+  };
+
   // Access the internal plugins registry
-  const internalPlugins = (app as unknown).internalPlugins;
+  const internalPlugins = (app as AppWithInternalPlugins).internalPlugins;
   if (!internalPlugins) return null;
 
-  const pagePreview = (internalPlugins).plugins?.["page-preview"];
+  const pagePreview = internalPlugins.plugins?.["page-preview"];
   if (!pagePreview?.enabled) return null;
 
   // Page Preview uses Ctrl on Windows/Linux, Meta on macOS by default.
