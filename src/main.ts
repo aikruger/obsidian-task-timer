@@ -1,99 +1,268 @@
-import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
-import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
+import { Editor, MarkdownView, Notice, Plugin, TFile } from "obsidian";
+import { TaskTimerSettings, DEFAULT_SETTINGS, TaskTimerSettingTab } from "./settings";
+import { DataStore } from "./persistence/data-store";
+import { TimerService } from "./domain/timer-service";
+import { TaskLocator } from "./domain/task-locator";
+import { ArchiveWatcher } from "./domain/archive-watcher";
+import { ReportingService } from "./domain/reporting-service";
+import { registerContextMenu } from "./ui/context-menu";
+import { buildInlineDecoratorExtension } from "./ui/inline-decorator";
+import { TaskTimerModal } from "./ui/task-timer-modal";
+import { AnalyticsView, ANALYTICS_VIEW_TYPE } from "./ui/analytics-view";
+import { generateBlockId, stripTimerSyntax } from "./domain/block-id";
 
-// Remember to rename these classes and interfaces!
+export default class TaskTimerPlugin extends Plugin {
+  settings: TaskTimerSettings;
+  dataStore: DataStore;
+  timerService: TimerService;
+  taskLocator: TaskLocator;
+  archiveWatcher: ArchiveWatcher;
+  reportingService: ReportingService;
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+  async onload(): Promise<void> {
+    console.log("[ttimer:main] onload start");
 
-	async onload() {
-		await this.loadSettings();
+    // ── Settings ───────────────────────────────────────────────
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.addSettingTab(new TaskTimerSettingTab(this.app, this));
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
+    // ── Services ───────────────────────────────────────────────
+    this.dataStore       = new DataStore(this);
+    await this.dataStore.load();
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
+    this.timerService    = new TimerService(this.dataStore);
+    this.taskLocator     = new TaskLocator(this.app);
+    this.archiveWatcher  = new ArchiveWatcher(this.app, this.timerService, this.taskLocator);
+    this.reportingService = new ReportingService(() => this.dataStore.timers);
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				editor.replaceSelection('Sample editor command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+    // ── Sidebar view ───────────────────────────────────────────
+    this.registerView(
+      ANALYTICS_VIEW_TYPE,
+      leaf => new AnalyticsView(leaf, this.timerService, this)
+    );
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-				return false;
-			}
-		});
+    this.addRibbonIcon("clock", "Task timers", () => {
+      console.log("[ttimer:main] ribbon icon clicked");
+      this.openAnalyticsSidebar();
+    });
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+    // ── Editor decoration (inline pills) ──────────────────────
+    this.registerEditorExtension(buildInlineDecoratorExtension(this));
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			new Notice("Click");
-		});
+    // ── Context menu ──────────────────────────────────────────
+    registerContextMenu(this);
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+    // ── Vault event: auto-archive on task complete ─────────────
+    this.registerEvent(
+      this.app.vault.on("modify", file => {
+        if (file instanceof TFile && file.extension === "md" && this.settings.archiveOnComplete) {
+          this.archiveWatcher.handleFileModify(file);
+        }
+      })
+    );
 
-	}
+    // ── Timer events: refresh sidebar and editor pills ───────
+    ["timerCreated", "timerUpdated", "timerDeleted"].forEach(evt => {
+      this.timerService.on(evt as any, () => {
+        this.refreshAnalyticsView();
+        this.app.workspace.updateOptions();
+      });
+    });
 
-	onunload() {
-	}
+    // ── Commands ──────────────────────────────────────────────
+    this.addCommand({
+      id: "attach-timer-to-current-task",
+      name: "Attach timer to current task",
+      editorCallback: (editor: Editor, view: MarkdownView) => {
+        console.log("[ttimer:command] attach-timer-to-current-task");
+        this.attachTimerToTask(editor, view.file);
+      },
+    });
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
-	}
+    this.addCommand({
+      id: "open-timer-modal-for-current-task",
+      name: "Open timer modal for current task",
+      editorCallback: (editor: Editor) => {
+        console.log("[ttimer:command] open-timer-modal-for-current-task");
+        const task = this.taskLocator.getTaskAtCursor(editor);
+        if (!task?.blockId) {
+          new Notice("No timer-linked task at cursor.");
+          return;
+        }
+        const timer = this.timerService.getTimerByBlockId(task.blockId);
+        if (!timer) {
+          new Notice("No timer found — use 'Attach timer' first.");
+          return;
+        }
+        this.openTimerModal(timer.id);
+      },
+    });
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
+    this.addCommand({
+      id: "open-task-timer-sidebar",
+      name: "Open task timer sidebar",
+      callback: () => this.openAnalyticsSidebar(),
+    });
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+    this.addCommand({
+      id: "export-timers-csv",
+      name: "Export timers to CSV",
+      callback: async () => {
+        console.log("[ttimer:command] export-timers-csv");
+        const csv = this.reportingService.exportCSV();
+        const fileName = `${this.settings.exportFolder ? this.settings.exportFolder + "/" : ""}ttimer-export-${Date.now()}.csv`;
+        try {
+          await this.app.vault.create(fileName, csv);
+          new Notice(`Exported: ${fileName}`);
+        } catch (e) {
+          console.error("[ttimer:command] export failed", e);
+          new Notice("Export failed — see console.");
+        }
+      },
+    });
 
-	onOpen() {
-		let {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+    this.addCommand({
+      id: "export-timers-json",
+      name: "Export timers to JSON",
+      callback: async () => {
+        console.log("[ttimer:command] export-timers-json");
+        const json = this.reportingService.exportJSON();
+        const fileName = `${this.settings.exportFolder ? this.settings.exportFolder + "/" : ""}ttimer-export-${Date.now()}.json`;
+        try {
+          await this.app.vault.create(fileName, json);
+          new Notice(`Exported: ${fileName}`);
+        } catch (e) {
+          console.error("[ttimer:command] export failed", e);
+          new Notice("Export failed — see console.");
+        }
+      },
+    });
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
+    this.addCommand({
+      id: "export-timers-markdown",
+      name: "Export timers to Markdown report",
+      callback: async () => {
+        console.log("[ttimer:command] export-timers-markdown");
+        const md = this.reportingService.exportMarkdown();
+        const fileName = `${this.settings.exportFolder ? this.settings.exportFolder + "/" : ""}ttimer-report-${Date.now()}.md`;
+        try {
+          await this.app.vault.create(fileName, md);
+          new Notice(`Report created: ${fileName}`);
+        } catch (e) {
+          console.error("[ttimer:command] markdown export failed", e);
+          new Notice("Export failed — see console.");
+        }
+      },
+    });
+
+    this.addCommand({
+      id: "debug-audit-timers",
+      name: "Debug: audit timer state",
+      callback: () => {
+        const all = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
+        console.group("[ttimer:debug] Full audit");
+        console.log("Total timers:", all.length);
+        all.forEach(t => {
+          console.log({
+            id: t.id,
+            state: t.state,
+            blockId: t.anchor.blockId,
+            filePath: t.anchor.filePath,
+            taskText: t.anchor.taskTextSnapshot,
+            segments: t.segments.length,
+            totalMs: t.totalMsCached,
+          });
+        });
+        console.groupEnd();
+      },
+    });
+
+    console.log("[ttimer:main] onload complete");
+  }
+
+  async onunload(): Promise<void> {
+    console.log("[ttimer:main] onunload");
+    await this.dataStore.saveImmediate();
+  }
+
+  // ── Public helpers called from UI modules ──────────────────
+
+  async attachTimerToTask(editor: Editor, file: TFile | null): Promise<void> {
+    if (!file) {
+      new Notice("Cannot determine current file.");
+      return;
+    }
+
+    const task = this.taskLocator.getTaskAtCursor(editor);
+    if (!task?.isTask) {
+      new Notice("Cursor is not on a markdown task line.");
+      return;
+    }
+
+    const blockId = task.blockId ?? generateBlockId(this.settings.blockIdPrefix);
+    const existingTimer = this.timerService.getTimerByBlockId(blockId);
+    if (existingTimer) {
+      console.log("[ttimer:main] attachTimerToTask: timer already exists, opening modal", existingTimer.id);
+      this.openTimerModal(existingTimer.id);
+      return;
+    }
+
+    const taskText = task.taskText;
+    let lineText = editor.getLine(task.line);
+
+    // Append block ID if not already present
+    if (!task.blockId) {
+      lineText = `${lineText} ${blockId}`;
+      editor.setLine(task.line, lineText);
+      console.log("[ttimer:main] attachTimerToTask: inserted blockId", { blockId, line: task.line });
+    }
+
+    const record = {
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      anchor: {
+        filePath: file.path,
+        line: task.line,
+        blockId,
+        taskTextSnapshot: taskText,
+      },
+      state: "stopped" as const,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      segments: [],
+      totalMsCached: 0,
+    };
+
+    this.timerService.createTimer(record);
+    new Notice("Timer attached.");
+    this.openTimerModal(record.id);
+
+    console.log("[ttimer:main] attachTimerToTask: created timer", { id: record.id, blockId });
+  }
+
+  openTimerModal(timerId: string): void {
+    console.log("[ttimer:main] openTimerModal", { timerId });
+    new TaskTimerModal(this.app, this, timerId).open();
+  }
+
+  async openAnalyticsSidebar(): Promise<void> {
+    console.log("[ttimer:main] openAnalyticsSidebar");
+    if (this.app.workspace.getLeavesOfType(ANALYTICS_VIEW_TYPE).length === 0) {
+      const leaf = this.app.workspace.getRightLeaf(false);
+      if (leaf) await leaf.setViewState({ type: ANALYTICS_VIEW_TYPE });
+    }
+    const leaves = this.app.workspace.getLeavesOfType(ANALYTICS_VIEW_TYPE);
+    if (leaves.length > 0 && leaves[0]) this.app.workspace.revealLeaf(leaves[0]);
+  }
+
+  refreshAnalyticsView(): void {
+    this.app.workspace.getLeavesOfType(ANALYTICS_VIEW_TYPE).forEach(leaf => {
+      if (leaf.view instanceof AnalyticsView) {
+        (leaf.view as AnalyticsView).render();
+      }
+    });
+  }
+
+  async saveSettings(): Promise<void> {
+    await this.saveData({ ...this.settings, ...this.dataStore.data });
+  }
 }

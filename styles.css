@@ -1,8 +1,85 @@
-/*
+/* ── Inline pill on task line ────────────────────────────── */
+.ttimer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius-s, 4px);
+  font-size: var(--font-ui-smaller, 11px);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  margin-left: 8px;
+  user-select: none;
+  transition: background 180ms ease;
+}
+.ttimer-pill--running  { background: rgba(34,197,94,0.18);  color: var(--color-green,  #16a34a); }
+.ttimer-pill--paused   { background: rgba(234,179,8,0.18);  color: var(--color-yellow, #ca8a04); }
+.ttimer-pill--stopped  { background: rgba(239,68,68,0.18);  color: var(--color-red,    #dc2626); }
+.ttimer-pill--archived { background: rgba(148,163,184,0.15); color: var(--color-text-muted); }
+.ttimer-pill:hover { filter: brightness(1.1); }
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+/* ── State pill (modal + sidebar) ────────────────────────── */
+.ttimer-state-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-s, 4px);
+  font-size: var(--font-ui-smaller, 11px);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ttimer-state-pill--running  { background: rgba(34,197,94,0.15);   color: #16a34a; }
+.ttimer-state-pill--paused   { background: rgba(234,179,8,0.15);   color: #ca8a04; }
+.ttimer-state-pill--stopped  { background: rgba(239,68,68,0.15);   color: #dc2626; }
+.ttimer-state-pill--archived { background: rgba(148,163,184,0.12); color: var(--color-text-muted); }
 
-If your plugin does not need CSS, delete this file.
+/* ── Sidebar / analytics view ────────────────────────────── */
+.ttimer-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m, 6px);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  transition: background 180ms ease;
+}
+.ttimer-card--running  { border-left: 3px solid #16a34a; }
+.ttimer-card--paused   { border-left: 3px solid #ca8a04; }
+.ttimer-card--stopped  { border-left: 3px solid #dc2626; }
+.ttimer-card--archived { opacity: 0.65; }
 
-*/
+.ttimer-card-label   { font-weight: 500; margin-bottom: 4px; }
+.ttimer-card-elapsed { font-variant-numeric: tabular-nums; font-size: var(--font-ui-smaller); color: var(--color-text-muted); }
+.ttimer-card-buttons { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+
+.ttimer-btn-icon {
+  background: none;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.ttimer-btn-icon:hover { background: var(--background-modifier-hover); }
+
+.ttimer-daily-summary { margin-top: 16px; }
+.ttimer-daily-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: var(--font-ui-smaller); border-bottom: 1px solid var(--background-modifier-border); }
+.ttimer-daily-date  { color: var(--color-text-muted); }
+.ttimer-daily-total { font-variant-numeric: tabular-nums; font-weight: 500; }
+.ttimer-empty { color: var(--color-text-muted); font-size: var(--font-ui-smaller); }
+
+/* ── Modal ───────────────────────────────────────────────── */
+.ttimer-modal-meta     { font-size: var(--font-ui-smaller); color: var(--color-text-muted); margin-bottom: 8px; }
+.ttimer-modal-filepath { font-style: italic; }
+.ttimer-modal-elapsed  { font-size: 2.4rem; font-variant-numeric: tabular-nums; font-weight: 700; margin: 12px 0; letter-spacing: 0.02em; }
+.ttimer-modal-segments { font-size: var(--font-ui-smaller); color: var(--color-text-muted); margin-bottom: 12px; }
+.ttimer-modal-controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.ttimer-modal-secondary { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--background-modifier-border); }
+
+.ttimer-btn { padding: 6px 14px; border-radius: var(--radius-s); border: 1px solid var(--background-modifier-border); cursor: pointer; font-size: var(--font-ui-small); font-weight: 500; transition: background 150ms; }
+.ttimer-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.ttimer-btn--start   { background: rgba(34,197,94,0.12);   border-color: #16a34a30; color: #16a34a; }
+.ttimer-btn--pause   { background: rgba(234,179,8,0.12);   border-color: #ca8a0430; color: #ca8a04; }
+.ttimer-btn--stop    { background: rgba(239,68,68,0.12);   border-color: #dc262630; color: #dc2626; }
+.ttimer-btn--archive { background: rgba(148,163,184,0.1);  }
+.ttimer-btn--ghost   { background: none; }
+.ttimer-btn--danger  { background: rgba(239,68,68,0.08); color: #dc2626; border-color: #dc262630; }
+.ttimer-btn:hover:not(:disabled) { filter: brightness(1.08); }
