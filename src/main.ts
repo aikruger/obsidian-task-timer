@@ -14,6 +14,7 @@ import { generateBlockId } from "./utils/block-id";
 import { InternalTimerProvider } from "./providers/internal-timer-provider";
 import { StatsModal } from "./views/stats-modal";
 import { KeyboardStateTracker } from "./ui/keyboard-state-tracker";
+import { tlog, terr, DEBUG } from "./utils/debug-logger";
 
 export default class TaskGeniusTimerPlugin extends Plugin {
   public dataStore: DataStore;
@@ -48,22 +49,50 @@ export default class TaskGeniusTimerPlugin extends Plugin {
 
     this.registerDomEvent(document.body, "click", (event: MouseEvent) => {
       const marker = (event.target as Element).closest(".ttimer-inline-marker");
+
+      // Log every click on the document body in debug mode to confirm delegation is running
+      if (DEBUG && (event.target as Element).closest(".markdown-preview-view, .cm-editor")) {
+        tlog("delegated-click", "Click in editor/preview area", {
+          target: (event.target as Element).tagName,
+          classes: (event.target as Element).className,
+          markerFound: !!marker
+        });
+      }
+
       if (!marker) return;
+
       const timerId = (marker as HTMLElement).dataset.timerId;
-      if (!timerId) return;
+      if (!timerId) {
+        terr("delegated-click", "Marker span found but has no data-timer-id attribute", marker);
+        return;
+      }
+
+      tlog("delegated-click", `✅ Marker clicked`, { timerId });
       event.preventDefault();
       event.stopImmediatePropagation();
-      console.debug("[ttimer] delegated click", timerId);
       this.inlineMarkerManager.handleClick(event, timerId, marker as HTMLElement);
     });
 
     this.registerDomEvent(document.body, "mouseover", (event: MouseEvent) => {
       const marker = (event.target as Element).closest(".ttimer-inline-marker");
       if (!marker) return;
+
+      const timerId = (marker as HTMLElement).dataset.timerId;
+      if (!timerId) {
+        terr("delegated-mouseover", "Marker found but no data-timer-id", marker);
+        return;
+      }
+
+      tlog("delegated-mouseover", `Mouseover marker`, {
+        timerId,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        hoverMode: this.dataStore.data.settings.hoverTriggerMode,
+        hoverEnabled: this.dataStore.data.settings.hoverPopupEnabled
+      });
+
       // Prevent firing repeatedly on every child element re-entry
       if (event.target !== marker && marker.contains(event.target as Node)) return;
-      const timerId = (marker as HTMLElement).dataset.timerId;
-      if (!timerId) return;
       this.popoverManager.pointerInsideMarker = true;
       const settings = this.dataStore.data.settings;
       if (
@@ -276,6 +305,73 @@ export default class TaskGeniusTimerPlugin extends Plugin {
         id: "open-task-timer-sidebar",
         name: "Open task timer sidebar",
         callback: () => this.openSidebar()
+    });
+
+    this.addCommand({
+      id: "debug-audit",
+      name: "Debug: Audit timer DOM and data state",
+      callback: () => {
+        const allTimers = [
+          ...this.timerService.getActiveTimers(),
+          ...this.timerService.getArchivedTimers()
+        ];
+
+        console.group("[ttimer] 🔍 Full Audit");
+
+        console.log("=== STORED TIMERS ===");
+        allTimers.forEach(t => {
+          console.log({
+            id: t.id,
+            state: t.state,
+            blockId: t.anchor.blockId,
+            filePath: t.anchor.filePath,
+            taskText: t.anchor.taskTextSnapshot,
+            totalMs: this.timerService.getElapsedMs(t.id)
+          });
+        });
+
+        console.log("=== DOM MARKERS ===");
+        const spans = document.querySelectorAll(".ttimer-inline-marker");
+        if (spans.length === 0) {
+          console.warn("No .ttimer-inline-marker spans found in the DOM");
+          console.warn("This means enhanceMarker was never called or the spans were removed");
+        } else {
+          spans.forEach(span => {
+            const s = span as HTMLElement;
+            const rect = s.getBoundingClientRect();
+            console.log({
+              timerId: s.dataset.timerId,
+              className: s.className,
+              textContent: s.textContent,
+              inDOM: document.body.contains(s),
+              rect: { top: rect.top, left: rect.left, w: rect.width, h: rect.height },
+              computedPointerEvents: window.getComputedStyle(s).pointerEvents,
+              computedZIndex: window.getComputedStyle(s).zIndex,
+              parentTag: s.parentElement?.tagName,
+              parentClasses: s.parentElement?.className
+            });
+          });
+        }
+
+        console.log("=== POPOVER STATE ===");
+        console.log({
+          popoverElInDOM: this.popoverManager.popoverEl
+            ? document.body.contains(this.popoverManager.popoverEl)
+            : false,
+          currentTimerId: this.popoverManager.currentTimerId,
+          pointerInsideMarker: this.popoverManager.pointerInsideMarker,
+          pointerInsidePopover: this.popoverManager.pointerInsidePopover,
+        });
+
+        console.log("=== SETTINGS ===");
+        console.log(this.dataStore.data.settings);
+
+        console.log("=== SIDEBAR LEAVES ===");
+        const leaves = this.app.workspace.getLeavesOfType(TASK_TIMER_VIEW_TYPE);
+        console.log({ count: leaves.length });
+
+        console.groupEnd();
+      }
     });
 
     this.addCommand({

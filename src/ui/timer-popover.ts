@@ -1,6 +1,7 @@
 import { TimerService } from "../domain/timer-service";
 import { formatDurationMs } from "../domain/time-format";
 import TaskGeniusTimerPlugin from "../main";
+import { tlog, terr } from "../utils/debug-logger";
 
 export class TimerPopover {
   public popoverEl: HTMLElement | null = null;
@@ -61,36 +62,52 @@ export class TimerPopover {
   }
 
   public showPopover(anchorEl: HTMLElement, timerId: string) {
+    tlog("popover", `showPopover called`, { timerId });
+
     const timer = this.timerService.getTimer(timerId);
     if (!timer) {
-      console.debug("[ttimer] showPopover aborted: timer missing", timerId);
+      terr("popover", `showPopover aborted: timer not found in service`, { timerId });
       return;
     }
 
-    if (this.popoverEl) this.hidePopover();
+    if (this.popoverEl) {
+      tlog("popover", "Hiding existing popover before showing new one");
+      this.hidePopover();
+    }
 
     this.currentTimerId = timerId;
     this.currentAnchorEl = anchorEl;
     this.openedAt = Date.now();
 
-    this.popoverEl = document.body.createEl("div", { cls: "ttimer-popover" });
-    console.debug("[ttimer] showPopover created", { timerId });
-
     const rect = anchorEl.getBoundingClientRect();
+    tlog("popover", `Anchor element bounding rect`, {
+      top: rect.top, bottom: rect.bottom,
+      left: rect.left, right: rect.right,
+      width: rect.width, height: rect.height,
+      viewportW: window.innerWidth, viewportH: window.innerHeight
+    });
 
-    let top = rect.bottom + 6;
-    let left = rect.left;
+    if (rect.width === 0 && rect.height === 0) {
+      terr("popover", `Anchor element has zero dimensions — it may not be visible in the DOM`, anchorEl);
+    }
 
-    const width = 240;
-    const estimatedHeight = 180;
-
-    if (left + width > window.innerWidth - 12) left = window.innerWidth - width - 12;
-    if (top + estimatedHeight > window.innerHeight - 12) top = Math.max(12, rect.top - estimatedHeight - 6);
-
+    this.popoverEl = document.body.createEl("div", { cls: "ttimer-popover" });
     this.popoverEl.style.position = "fixed";
     this.popoverEl.style.zIndex = "9999";
+
+    const top = rect.bottom + 6;
+    const left = Math.min(rect.left, window.innerWidth - 260);
+
     this.popoverEl.style.top = `${top}px`;
     this.popoverEl.style.left = `${left}px`;
+
+    tlog("popover", `✅ Popover element created and positioned`, {
+      top, left,
+      attachedToBody: document.body.contains(this.popoverEl),
+      computedPosition: window.getComputedStyle(this.popoverEl).position,
+      computedZIndex:   window.getComputedStyle(this.popoverEl).zIndex,
+      computedDisplay:  window.getComputedStyle(this.popoverEl).display,
+    });
 
     this.render();
 
