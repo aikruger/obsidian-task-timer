@@ -4,110 +4,85 @@ import TaskGeniusTimerPlugin from "../main";
 import { tlog, twarn, terr } from "../utils/debug-logger";
 import { TaskTimerControlModal } from "./task-timer-control-modal";
 
+function normalizeTaskText(text: string): string {
+  return text
+    .replace(/\^ttimer-[\w-]+/g, "")
+    .replace(/\[⏱\]|⏱/g, "")
+    .replace(/^\s*[-*]\s+\[[ xX]\]\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export class InlineMarkerManager {
   constructor(private app: App, private timerService: TimerService, private plugin: TaskGeniusTimerPlugin) {}
 
-  public postProcessor(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
-    const filePath = ctx.sourcePath;
+  public postProcessor(container: HTMLElement, ctx: MarkdownPostProcessorContext) {
+    const sourcePath = ctx.sourcePath;
 
-    const allTimers = [
+    const timers = [
       ...this.timerService.getActiveTimers(),
       ...this.timerService.getArchivedTimers(),
-    ];
+    ].filter(t => t.anchor.filePath === sourcePath);
 
-    const timersForFile = allTimers.filter(
-      (t) => t.anchor.filePath === filePath && t.anchor.blockId
-    );
-
-    tlog("postProcessor", `Running for file: ${filePath}`, {
-      timerCount: timersForFile.length,
-      containerTextSnippet: el.textContent?.slice(0, 120)
+    console.debug("[ttimer:postProcessor] start", {
+      sourcePath,
+      timerCount: timers.length,
     });
 
-    if (timersForFile.length === 0) {
-      tlog("postProcessor", "No timers with blockIds for this file — skipping");
-      return;
-    }
+    if (!timers.length) return;
 
-    for (const timer of timersForFile) {
-      if (!timer.anchor.blockId) continue;
+    const matchedTimerIds = new Set<string>();
+    const candidates = Array.from(
+      container.querySelectorAll("li.task-list-item, li, p")
+    );
 
-      const rawId = timer.anchor.blockId.replace(/^\^/, "");
+    console.debug("[ttimer:postProcessor] candidate count", candidates.length);
 
-      tlog("postProcessor", `Searching DOM for blockId: "${rawId}"`, {
+    for (const candidate of candidates) {
+      const rawText = candidate.textContent ?? "";
+      if (!rawText.includes("⏱")) continue;
+
+      console.debug("[ttimer:postProcessor] candidate with marker", {
+        text: rawText.slice(0, 160)
+      });
+
+      const normalizedCandidate = normalizeTaskText(rawText);
+
+      const timer = timers.find(t => {
+        if (matchedTimerIds.has(t.id)) return false;
+        return normalizeTaskText(t.anchor.taskTextSnapshot) === normalizedCandidate;
+      });
+
+      if (!timer) {
+        console.warn("[ttimer:postProcessor] no timer match for candidate", {
+          candidateText: rawText.slice(0, 160)
+        });
+        continue;
+      }
+
+      matchedTimerIds.add(timer.id);
+
+      console.debug("[ttimer:postProcessor] matched candidate to timer", {
         timerId: timer.id,
+        filePath: timer.anchor.filePath,
         taskText: timer.anchor.taskTextSnapshot
       });
 
-      // Strategy 1: Obsidian renders block IDs as <span id="blockid"> or <span id="^blockid">
-      let anchorEl: Element | null =
-        el.querySelector(`span#${CSS.escape(rawId)}`) ??
-        el.querySelector(`span[id="${rawId}"]`) ??
-        el.querySelector(`span[id="^${rawId}"]`);
-
-      if (anchorEl) {
-        tlog("postProcessor", `✅ Strategy 1 matched: <span id>`, anchorEl);
-      } else {
-        twarn("postProcessor", `Strategy 1 failed: no <span id="${rawId}"> found`);
-      }
-
-      // Strategy 2: scan all text nodes for the raw block ID token as fallback
-      if (!anchorEl) {
-        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-        let node: Text | null;
-        while ((node = walker.nextNode() as Text | null)) {
-          if (node.nodeValue?.includes(timer.anchor.blockId)) {
-            anchorEl = node.parentElement;
-            tlog("postProcessor", `✅ Strategy 2 matched: text node contains blockId`, {
-              nodeValue: node.nodeValue?.slice(0, 80),
-              parentTag: anchorEl?.tagName
-            });
-            break;
-          }
-        }
-        if (!anchorEl) {
-          twarn("postProcessor", `Strategy 2 failed: no text node contains blockId "${timer.anchor.blockId}"`);
-        }
-      }
-
-      // Strategy 3: check if the container element itself contains the block ID in its text
-      if (!anchorEl && el.textContent?.includes(timer.anchor.blockId)) {
-        anchorEl = el;
-        tlog("postProcessor", `✅ Strategy 3 matched: container el contains blockId`);
-      } else if (!anchorEl) {
-        terr("postProcessor", `All 3 strategies failed for blockId "${rawId}". DOM dump below:`);
-        console.debug("[ttimer:postProcessor] Container innerHTML:", el.innerHTML.slice(0, 500));
+      if (candidate.querySelector(`.ttimer-inline-marker[data-timer-id="${timer.id}"]`)) {
+        console.debug("[ttimer:postProcessor] already enhanced", { timerId: timer.id });
         continue;
       }
 
-      const p: Element | null =
-        anchorEl.closest("li.task-list-item") ??
-        anchorEl.closest("li") ??
-        anchorEl.closest("p") ??
-        anchorEl;
-
-      if (!p) {
-        terr("postProcessor", `Could not find parent <li> or <p> for anchor`, anchorEl);
-        continue;
-      }
-
-      tlog("postProcessor", `Found parent element`, {
-        tag: p.tagName,
-        classes: p.className,
-        textSnippet: p.textContent?.slice(0, 80)
+      console.debug("[ttimer:postProcessor] enhancing marker", {
+        timerId: timer.id,
+        candidateText: rawText.slice(0, 200),
       });
 
-      if (p.querySelector(`.ttimer-inline-marker[data-timer-id="${timer.id}"]`)) {
-        tlog("postProcessor", `Marker already enhanced for timer ${timer.id} — skipping`);
-        continue;
-      }
-
-      tlog("postProcessor", `Calling enhanceMarker`, { timerId: timer.id });
-      this.enhanceMarker(p as HTMLElement, timer);
+      this.enhanceMarker(candidate as HTMLElement, timer);
     }
   }
 
-  private findTimerMarkerNode(el: HTMLElement): Text | null {
+  private findTimerMarkerNode(el: HTMLElement): { node: Text, token: string } | null {
     tlog("findMarkerNode", "Scanning for ⏱ text node", {
       elTag: el.tagName,
       elText: el.textContent?.slice(0, 80)
@@ -117,14 +92,29 @@ export class InlineMarkerManager {
     let node: Text | null;
     let nodesScanned = 0;
 
+    let fallbackNode: Text | null = null;
+    let fallbackToken: string | null = null;
+
     while ((node = walker.nextNode() as Text | null)) {
       nodesScanned++;
-      if (node.nodeValue?.includes("⏱")) {
-        tlog("findMarkerNode", `✅ Found ⏱ in text node after scanning ${nodesScanned} nodes`, {
-          nodeValue: node.nodeValue?.slice(0, 80)
+      const raw = node.nodeValue ?? "";
+      if (raw.includes("[⏱]")) {
+        tlog("findMarkerNode", `✅ Found [⏱] in text node after scanning ${nodesScanned} nodes`, {
+          nodeValue: raw.slice(0, 80)
         });
-        return node;
+        return { node, token: "[⏱]" };
       }
+      if (raw.includes("⏱") && !fallbackNode) {
+         fallbackNode = node;
+         fallbackToken = "⏱";
+      }
+    }
+
+    if (fallbackNode && fallbackToken) {
+       tlog("findMarkerNode", `✅ Found ⏱ in text node after scanning ${nodesScanned} nodes`, {
+          nodeValue: fallbackNode.nodeValue?.slice(0, 80)
+       });
+       return { node: fallbackNode, token: fallbackToken };
     }
 
     twarn("findMarkerNode", `No ⏱ text node found after scanning ${nodesScanned} nodes. Full text:`, el.textContent?.slice(0, 200));
@@ -143,19 +133,21 @@ export class InlineMarkerManager {
         return;
       }
 
-      const textNode = this.findTimerMarkerNode(el);
+      const match = this.findTimerMarkerNode(el);
 
-      if (textNode && textNode.parentNode) {
+      if (match && match.node.parentNode) {
           tlog("enhanceMarker", `Replacing text node with interactive span`);
+          const textNode = match.node;
+          const token = match.token;
           const parent = textNode.parentNode;
 
           // Split the text node around the marker to replace just the marker
           const nodeValue = textNode.nodeValue || "";
-          const markerIndex = nodeValue.indexOf("⏱");
+          const markerIndex = nodeValue.indexOf(token);
 
-          if (markerIndex !== -1) {
+          if (markerIndex !== -1 && parent) {
               const beforeText = nodeValue.substring(0, markerIndex);
-              const afterText = nodeValue.substring(markerIndex + 1);
+              const afterText = nodeValue.substring(markerIndex + token.length);
 
               if (beforeText) {
                   parent.insertBefore(document.createTextNode(beforeText), textNode);
@@ -164,7 +156,7 @@ export class InlineMarkerManager {
               const marker = document.createElement("span");
               marker.className = `ttimer-inline-marker ttimer-inline-marker--${timer.state}`;
               marker.dataset.timerId = timer.id;
-              marker.textContent = "⏱";
+              marker.textContent = token;
               marker.title = `Task Timer: ${timer.anchor.taskTextSnapshot}`;
 
               parent.insertBefore(marker, textNode);
@@ -175,7 +167,9 @@ export class InlineMarkerManager {
 
               parent.removeChild(textNode);
 
-              tlog("enhanceMarker", `✅ Span inserted via text-node replacement`, { timerId: timer.id });
+              console.debug("[ttimer:enhanceMarker] inserted interactive marker", {
+                timerId: timer.id
+              });
           }
       } else {
           twarn("enhanceMarker", `No ⏱ text node found — using fallback append`, {
@@ -191,7 +185,9 @@ export class InlineMarkerManager {
           el.appendChild(document.createTextNode(" "));
           el.appendChild(fallback);
 
-          tlog("enhanceMarker", `✅ Span appended via fallback`, { timerId: timer.id });
+          console.debug("[ttimer:enhanceMarker] inserted interactive marker (fallback)", {
+            timerId: timer.id
+          });
       }
   }
 

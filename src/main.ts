@@ -137,6 +137,12 @@ export default class TaskGeniusTimerPlugin extends Plugin {
       id: "attach-timer-to-current-task",
       name: "Attach timer to current task",
       editorCallback: async (editor: Editor, view) => {
+         if (!view.file?.path) {
+           console.error("[ttimer:attach] missing file path; aborting timer creation");
+           new Notice("Could not determine current file path.");
+           return;
+         }
+
          const taskInfo = this.taskLocator.getTaskAtCursor(editor);
          if (!taskInfo || !taskInfo.isTask) {
              new Notice("Cursor is not on a markdown task line.");
