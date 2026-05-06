@@ -2,6 +2,7 @@ import { App, MarkdownPostProcessorContext } from "obsidian";
 import { TimerService } from "../domain/timer-service";
 import TaskGeniusTimerPlugin from "../main";
 import { tlog, twarn, terr } from "../utils/debug-logger";
+import { TaskTimerControlModal } from "./task-timer-control-modal";
 
 export class InlineMarkerManager {
   constructor(private app: App, private timerService: TimerService, private plugin: TaskGeniusTimerPlugin) {}
@@ -201,18 +202,15 @@ export class InlineMarkerManager {
     if (clickAction === "none") return;
 
     if (clickAction === "sidebar") {
-      this.openSidebarAndFocus(timerId);
+      this.openSidebarAndFocus(timerId).catch((err) => terr("handleClick", "Error opening sidebar", err));
       return;
     }
 
-    if (clickAction === "popover") {
-      this.plugin.popoverManager.togglePopover(anchorEl, timerId);
-      return;
-    }
-
-    if (clickAction === "both") {
-      this.openSidebarAndFocus(timerId);
-      this.plugin.popoverManager.showPopover(anchorEl, timerId);
+    if (clickAction === "popover" || clickAction === "both") {
+      new TaskTimerControlModal(this.app, this.plugin, timerId).open();
+      if (clickAction === "both") {
+        this.openSidebarAndFocus(timerId).catch((err) => terr("handleClick", "Error opening sidebar", err));
+      }
     }
   }
 

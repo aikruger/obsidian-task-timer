@@ -201,13 +201,13 @@ export class TaskTimerSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Click action")
+      .setName("Task control UI mode")
       .setDesc("Action when clicking the marker.")
       .addDropdown((dropdown) => {
         dropdown.addOption("none", "None");
-        dropdown.addOption("sidebar", "Open sidebar");
-        dropdown.addOption("popover", "Open popover");
-        dropdown.addOption("both", "Both");
+        dropdown.addOption("sidebar", "Sidebar");
+        dropdown.addOption("popover", "Modal");
+        dropdown.addOption("both", "Modal + sidebar");
         dropdown.setValue(this.settings.clickAction);
         dropdown.onChange(async (value: "none" | "sidebar" | "popover" | "both") => {
           this.settings.clickAction = value;
