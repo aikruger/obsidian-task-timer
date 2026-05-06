@@ -431,13 +431,36 @@ export default class TaskGeniusTimerPlugin extends Plugin {
     await this.dataStore.saveImmediate();
   }
 
+  normalizeSettings(settings: any): import("./types/models").PluginSettings {
+    return {
+      ...DEFAULT_SETTINGS,
+      ...settings,
+      hoverOpenDelayMs: Number.isFinite(settings?.hoverOpenDelayMs) ? settings.hoverOpenDelayMs : 180,
+      hoverCloseDelayMs: Number.isFinite(settings?.hoverCloseDelayMs) ? settings.hoverCloseDelayMs : 220,
+      clickAction: settings?.clickAction ?? "both",
+      hoverTriggerMode: settings?.hoverTriggerMode ?? "hover",
+    };
+  }
+
   async loadPluginData() {
-    const rawData = await this.loadData();
-    const data: PluginData = Object.assign(
-      { version: 1, timers: [], settings: DEFAULT_SETTINGS },
-      rawData
-    );
-    // basic migration stub
+    const loaded = await this.loadData();
+
+    const mergedSettings = this.normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      ...(loaded?.settings ?? {})
+    });
+
+    console.debug("[ttimer:settings] loaded raw settings", loaded?.settings);
+    console.debug("[ttimer:settings] merged settings", mergedSettings);
+    console.debug("[ttimer:settings] hoverOpenDelayMs", mergedSettings.hoverOpenDelayMs);
+    console.debug("[ttimer:settings] hoverCloseDelayMs", mergedSettings.hoverCloseDelayMs);
+
+    const data: PluginData = {
+      version: loaded?.version ?? 1,
+      timers: loaded?.timers ?? [],
+      settings: mergedSettings
+    };
+
     this.dataStore = new DataStore(this, data);
   }
 

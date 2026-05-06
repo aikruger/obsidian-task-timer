@@ -44,6 +44,12 @@ export class TaskTimerSettingTab extends PluginSettingTab {
   }
 
   display(): void {
+    console.debug("[ttimer:settings] rendering settings tab", {
+      hoverOpenDelayMs: this.settings.hoverOpenDelayMs,
+      hoverCloseDelayMs: this.settings.hoverCloseDelayMs,
+      clickAction: this.settings.clickAction
+    });
+
     const { containerEl } = this;
 
     containerEl.empty();
@@ -215,24 +221,29 @@ export class TaskTimerSettingTab extends PluginSettingTab {
         });
       });
 
+    const openDelay = this.settings.hoverOpenDelayMs ?? 180;
+    const closeDelay = this.settings.hoverCloseDelayMs ?? 220;
+
     new Setting(containerEl)
       .setName("Hover open delay (ms)")
-      .addText((text) =>
+      .addText(text =>
         text
-          .setValue(this.settings.hoverOpenDelayMs.toString())
+          .setValue(String(openDelay))
           .onChange(async (value) => {
-            this.settings.hoverOpenDelayMs = parseInt(value, 10) || 180;
+            const parsed = Number.parseInt(value, 10);
+            this.settings.hoverOpenDelayMs = Number.isFinite(parsed) ? parsed : 180;
             await this.plugin.saveSettings();
           })
       );
 
     new Setting(containerEl)
       .setName("Hover close delay (ms)")
-      .addText((text) =>
+      .addText(text =>
         text
-          .setValue(this.settings.hoverCloseDelayMs.toString())
+          .setValue(String(closeDelay))
           .onChange(async (value) => {
-            this.settings.hoverCloseDelayMs = parseInt(value, 10) || 220;
+            const parsed = Number.parseInt(value, 10);
+            this.settings.hoverCloseDelayMs = Number.isFinite(parsed) ? parsed : 220;
             await this.plugin.saveSettings();
           })
       );
