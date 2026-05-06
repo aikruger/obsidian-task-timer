@@ -17,6 +17,7 @@ import { KeyboardStateTracker } from "./ui/keyboard-state-tracker";
 import { InlineMarkerRemover } from "./editor/inline-marker-remover";
 import { ConfirmModal } from "./ui/confirm-modal";
 import { tlog, terr, DEBUG } from "./utils/debug-logger";
+import { TaskTimerControlModal } from "./ui/task-timer-control-modal";
 
 export default class TaskGeniusTimerPlugin extends Plugin {
   public dataStore: DataStore;
@@ -153,6 +154,12 @@ export default class TaskGeniusTimerPlugin extends Plugin {
          let blockId = existingBlockId;
          const currentLine = editor.getLine(taskInfo.line);
 
+         console.log("[ttimer:attach] preparing new timer marker", {
+           filePath: view.file.path,
+           line: taskInfo.line,
+           existingBlockId: existingBlockId ?? null
+         });
+
          if (blockId) {
              const existingTimer = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()]
                  .find(timer => timer.anchor.blockId === blockId);
@@ -163,9 +170,18 @@ export default class TaskGeniusTimerPlugin extends Plugin {
              }
          } else {
              blockId = generateBlockId(this.dataStore.data.settings.blockIdPrefix);
-             const marker = this.dataStore.data.settings.markerStyle === "token" ? " [⏱] " : " ⏱ ";
-             const updatedLine = currentLine + marker + blockId;
-             editor.setLine(taskInfo.line, updatedLine);
+             const markerToken = `[⏱|${blockId}]`;
+             const updatedLine = currentLine + " " + markerToken + " " + blockId;
+             try {
+               editor.setLine(taskInfo.line, updatedLine);
+               console.log("[ttimer:attach] inserted structured marker", {
+                 blockId,
+                 markerToken,
+                 updatedLine
+               });
+             } catch (error) {
+               console.error("[ttimer:attach] failed to rewrite task line", error);
+             }
          }
 
          const newTimer: TaskTimerRecord = {
@@ -427,6 +443,62 @@ export default class TaskGeniusTimerPlugin extends Plugin {
                  new Notice(`Failed to export: ${e}`);
              }
         }
+    });
+
+    this.addCommand({
+      id: "repair-legacy-timer-markers",
+      name: "Repair legacy timer markers in current file",
+      editorCallback: async (editor: Editor, view) => {
+        const file = view.file;
+        if (!file) return;
+
+        let repairedCount = 0;
+        for (let i = 0; i < editor.lineCount(); i++) {
+          const line = editor.getLine(i);
+          const blockIdMatch = line.match(/\s+(\^[a-zA-Z0-9-]+)$/);
+          if (blockIdMatch && blockIdMatch[1] && (line.includes("[⏱]") || line.includes("⏱")) && !line.includes(`[⏱|${blockIdMatch[1]}]`)) {
+             const blockId = blockIdMatch[1];
+             const markerToken = `[⏱|${blockId}]`;
+             const newLine = line
+               .replace(/\[⏱\]/g, "")
+               .replace(/⏱/g, "")
+               .replace(blockId, `${markerToken} ${blockId}`)
+               .replace(/\s+/g, " ");
+
+             try {
+               editor.setLine(i, newLine);
+               console.log("[ttimer:repair] rewrote legacy marker", {
+                 filePath: file.path,
+                 lineNumber: i,
+                 blockId
+               });
+               repairedCount++;
+             } catch (error) {
+               console.error("[ttimer:repair] failed to rewrite line", {
+                 filePath: file.path,
+                 lineNumber: i,
+                 error
+               });
+             }
+          }
+        }
+        new Notice(`Repaired ${repairedCount} legacy timer markers.`);
+      }
+    });
+
+    this.addCommand({
+      id: "debug-open-first-timer-modal",
+      name: "Debug: Open first timer modal",
+      callback: () => {
+        const allTimers = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
+        if (allTimers.length > 0 && allTimers[0]) {
+          const timer = allTimers[0];
+          console.log("[ttimer:debug] attempting to open first timer modal", { timer });
+          new TaskTimerControlModal(this.app, this, timer.id).open();
+        } else {
+          new Notice("No timers found.");
+        }
+      }
     });
   }
 

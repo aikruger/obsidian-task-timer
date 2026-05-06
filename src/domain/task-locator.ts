@@ -1,4 +1,5 @@
 import { Editor, MarkdownView, TFile, App } from "obsidian";
+import { stripInlineTimerSyntax } from "../utils/marker-utils";
 
 export interface TaskLineInfo {
   line: number;
@@ -36,9 +37,18 @@ export class TaskLocator {
       text = text.replace(blockIdMatch[0], "");
     }
 
+    const strippedText = stripInlineTimerSyntax(text.trim());
+
+    console.debug("[ttimer:taskLocator] parsed task line", {
+      line: lineNumber,
+      originalText: text,
+      strippedText,
+      blockId
+    });
+
     return {
       line: lineNumber,
-      text: text.trim(),
+      text: strippedText,
       isTask: true,
       isCompleted,
       blockId,

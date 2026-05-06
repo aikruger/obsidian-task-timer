@@ -3,11 +3,10 @@ import { TimerService } from "../domain/timer-service";
 import TaskGeniusTimerPlugin from "../main";
 import { tlog, twarn, terr } from "../utils/debug-logger";
 import { TaskTimerControlModal } from "./task-timer-control-modal";
+import { extractStructuredTimerMarker, stripInlineTimerSyntax } from "../utils/marker-utils";
 
 function normalizeTaskText(text: string): string {
-  return text
-    .replace(/\^ttimer-[\w-]+/g, "")
-    .replace(/\[⏱\]|⏱/g, "")
+  return stripInlineTimerSyntax(text)
     .replace(/^\s*[-*]\s+\[[ xX]\]\s*/, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -42,16 +41,37 @@ export class InlineMarkerManager {
       const rawText = candidate.textContent ?? "";
       if (!rawText.includes("⏱")) continue;
 
-      console.debug("[ttimer:postProcessor] candidate with marker", {
-        text: rawText.slice(0, 160)
+      console.debug("[ttimer:postProcessor] candidate", {
+        candidateText: rawText.slice(0, 160)
       });
 
-      const normalizedCandidate = normalizeTaskText(rawText);
-
-      const timer = timers.find(t => {
-        if (matchedTimerIds.has(t.id)) return false;
-        return normalizeTaskText(t.anchor.taskTextSnapshot) === normalizedCandidate;
+      const structured = extractStructuredTimerMarker(rawText);
+      console.debug("[ttimer:postProcessor] structured marker parse", {
+        candidateText: rawText.slice(0, 160),
+        parsedBlockId: structured?.blockId ?? null
       });
+
+      let timer = null;
+
+      if (structured) {
+          timer = timers.find(t => t.anchor.blockId === structured.blockId);
+          console.debug("[ttimer:postProcessor] structured match result", {
+            parsedBlockId: structured.blockId,
+            timerId: timer?.id ?? null
+          });
+      }
+
+      if (!timer) {
+          console.warn("[ttimer:postProcessor] legacy fallback match path", {
+            candidateText: rawText.slice(0, 160)
+          });
+          const normalizedCandidate = normalizeTaskText(rawText);
+
+          timer = timers.find(t => {
+            if (matchedTimerIds.has(t.id)) return false;
+            return normalizeTaskText(t.anchor.taskTextSnapshot) === normalizedCandidate;
+          });
+      }
 
       if (!timer) {
         console.warn("[ttimer:postProcessor] no timer match for candidate", {
@@ -98,8 +118,19 @@ export class InlineMarkerManager {
     while ((node = walker.nextNode() as Text | null)) {
       nodesScanned++;
       const raw = node.nodeValue ?? "";
+
+      const structured = extractStructuredTimerMarker(raw);
+      if (structured) {
+        console.debug("[ttimer:findMarkerNode] found structured token", {
+          token: structured.raw,
+          nodeValue: raw.slice(0, 80)
+        });
+        return { node, token: structured.raw };
+      }
+
       if (raw.includes("[⏱]")) {
-        tlog("findMarkerNode", `✅ Found [⏱] in text node after scanning ${nodesScanned} nodes`, {
+        console.debug("[ttimer:findMarkerNode] found structured token", {
+          token: "[⏱]",
           nodeValue: raw.slice(0, 80)
         });
         return { node, token: "[⏱]" };
@@ -111,17 +142,20 @@ export class InlineMarkerManager {
     }
 
     if (fallbackNode && fallbackToken) {
-       tlog("findMarkerNode", `✅ Found ⏱ in text node after scanning ${nodesScanned} nodes`, {
+       console.debug("[ttimer:findMarkerNode] found structured token", {
+          token: fallbackToken,
           nodeValue: fallbackNode.nodeValue?.slice(0, 80)
        });
        return { node: fallbackNode, token: fallbackToken };
     }
 
-    twarn("findMarkerNode", `No ⏱ text node found after scanning ${nodesScanned} nodes. Full text:`, el.textContent?.slice(0, 200));
+    console.warn("[ttimer:findMarkerNode] no timer token found", {
+      text: el.textContent
+    });
     return null;
   }
 
-  private enhanceMarker(el: HTMLElement, timer: import("../types/models").TaskTimerRecord) {
+  private enhanceMarker(el: HTMLElement, timer: import("../types/models").TaskTimerRecord, explicitToken?: string) {
       tlog("enhanceMarker", `Called for timer ${timer.id}`, {
         task: timer.anchor.taskTextSnapshot,
         elTag: el.tagName,
@@ -156,8 +190,22 @@ export class InlineMarkerManager {
               const marker = document.createElement("span");
               marker.className = `ttimer-inline-marker ttimer-inline-marker--${timer.state}`;
               marker.dataset.timerId = timer.id;
-              marker.textContent = token;
+              marker.dataset.blockId = timer.anchor.blockId ?? "";
+              marker.textContent = "⏱";
               marker.title = `Task Timer: ${timer.anchor.taskTextSnapshot}`;
+
+              marker.addEventListener("click", (evt) => {
+                console.debug("[ttimer:inline] direct marker click", {
+                  timerId: timer.id,
+                  blockId: timer.anchor.blockId,
+                  clickAction: this.plugin.dataStore.data.settings.clickAction
+                });
+                evt.preventDefault();
+                evt.stopPropagation();
+                evt.stopImmediatePropagation();
+                this.handleClick(evt, timer.id, marker);
+              });
+              marker.addEventListener("mouseenter", () => console.debug("[ttimer:inline] mouseenter", { timerId: timer.id }));
 
               parent.insertBefore(marker, textNode);
 
@@ -168,7 +216,9 @@ export class InlineMarkerManager {
               parent.removeChild(textNode);
 
               console.debug("[ttimer:enhanceMarker] inserted interactive marker", {
-                timerId: timer.id
+                timerId: timer.id,
+                blockId: timer.anchor.blockId,
+                tokenUsed: explicitToken ?? token
               });
           }
       } else {
@@ -180,31 +230,54 @@ export class InlineMarkerManager {
           const fallback = document.createElement("span");
           fallback.className = `ttimer-inline-marker ttimer-inline-marker--${timer.state}`;
           fallback.dataset.timerId = timer.id;
+          fallback.dataset.blockId = timer.anchor.blockId ?? "";
           fallback.textContent = "⏱";
           fallback.title = `Task Timer: ${timer.anchor.taskTextSnapshot}`;
+
+          fallback.addEventListener("click", (evt) => {
+            console.debug("[ttimer:inline] direct marker click", {
+              timerId: timer.id,
+              blockId: timer.anchor.blockId,
+              clickAction: this.plugin.dataStore.data.settings.clickAction
+            });
+            evt.preventDefault();
+            evt.stopPropagation();
+            evt.stopImmediatePropagation();
+            this.handleClick(evt, timer.id, fallback);
+          });
+          fallback.addEventListener("mouseenter", () => console.debug("[ttimer:inline] mouseenter", { timerId: timer.id }));
+
           el.appendChild(document.createTextNode(" "));
           el.appendChild(fallback);
 
-          console.debug("[ttimer:enhanceMarker] inserted interactive marker (fallback)", {
-            timerId: timer.id
+          console.debug("[ttimer:enhanceMarker] inserted interactive marker", {
+            timerId: timer.id,
+            blockId: timer.anchor.blockId,
+            tokenUsed: explicitToken ?? "fallback"
           });
       }
   }
 
   public handleClick(e: MouseEvent, timerId: string, anchorEl: HTMLElement) {
     const clickAction = this.plugin.dataStore.data.settings.clickAction;
-    tlog("handleClick", "Handling click", { timerId, clickAction });
+    console.debug("[ttimer:handleClick] invoked", {
+      timerId,
+      clickAction
+    });
 
     if (clickAction === "none") return;
 
     if (clickAction === "sidebar") {
+      console.debug("[ttimer:handleClick] opening sidebar", { timerId });
       this.openSidebarAndFocus(timerId).catch((err) => terr("handleClick", "Error opening sidebar", err));
       return;
     }
 
     if (clickAction === "popover" || clickAction === "both") {
+      console.debug("[ttimer:handleClick] opening modal", { timerId });
       new TaskTimerControlModal(this.app, this.plugin, timerId).open();
       if (clickAction === "both") {
+        console.debug("[ttimer:handleClick] opening sidebar", { timerId });
         this.openSidebarAndFocus(timerId).catch((err) => terr("handleClick", "Error opening sidebar", err));
       }
     }
