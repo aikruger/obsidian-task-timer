@@ -87,6 +87,8 @@ export class TimerPopover {
     if (left + width > window.innerWidth - 12) left = window.innerWidth - width - 12;
     if (top + estimatedHeight > window.innerHeight - 12) top = Math.max(12, rect.top - estimatedHeight - 6);
 
+    this.popoverEl.style.position = "fixed";
+    this.popoverEl.style.zIndex = "9999";
     this.popoverEl.style.top = `${top}px`;
     this.popoverEl.style.left = `${left}px`;
 

@@ -2,6 +2,31 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import type { PluginSettings } from "../types/models";
 import TaskGeniusTimerPlugin from "../main";
 
+function detectPagePreviewCollision(app: App, mode: string): string | null {
+  // Access the internal plugins registry
+  const internalPlugins = (app as unknown).internalPlugins;
+  if (!internalPlugins) return null;
+
+  const pagePreview = internalPlugins.plugins?.["page-preview"];
+  if (!pagePreview?.enabled) return null;
+
+  // Page Preview uses Ctrl on Windows/Linux, Meta on macOS by default.
+  // It has no user-configurable modifier setting, so we infer from platform.
+  const isMac = navigator.platform.toLowerCase().includes("mac");
+  const pagePreviewModifier = isMac ? "meta" : "ctrl";
+
+  if (mode === pagePreviewModifier) {
+    return `Warning: This modifier key is also used by Obsidian's built-in Page Preview plugin. ` +
+           `Hovering over a timer marker will trigger both the page preview and the timer popover simultaneously. ` +
+           `Consider using Alt, Shift, or Alt+Shift instead.`;
+  }
+  if (mode === "alt-ctrl" && pagePreviewModifier === "ctrl") {
+    return `Warning: This combination includes the Ctrl key used by Page Preview. ` +
+           `Some interactions may conflict.`;
+  }
+  return null;
+}
+
 export class TaskTimerSettingTab extends PluginSettingTab {
   plugin: TaskGeniusTimerPlugin;
   settings: PluginSettings;
@@ -115,6 +140,8 @@ export class TaskTimerSettingTab extends PluginSettingTab {
           })
       );
 
+    let collisionWarningEl: HTMLElement | null = null;
+
     new Setting(containerEl)
       .setName("Trigger mode")
       .setDesc("How to trigger the popover.")
@@ -131,7 +158,40 @@ export class TaskTimerSettingTab extends PluginSettingTab {
         dropdown.onChange(async (value: "hover" | "alt" | "ctrl" | "shift" | "meta" | "alt-ctrl" | "alt-shift" | "none") => {
           this.settings.hoverTriggerMode = value;
           await this.plugin.saveSettings();
+
+          if (collisionWarningEl) {
+            collisionWarningEl.remove();
+            collisionWarningEl = null;
+          }
+          const warning = detectPagePreviewCollision(this.plugin.app, value);
+          if (warning) {
+            collisionWarningEl = containerEl.createEl("div", {
+              cls: "ttimer-settings-warning",
+              text: warning,
+            });
+            dropdown.selectEl.closest(".setting-item")?.insertAdjacentElement(
+              "afterend",
+              collisionWarningEl
+            );
+          }
         });
+
+        const initialWarning = detectPagePreviewCollision(
+          this.plugin.app,
+          this.settings.hoverTriggerMode
+        );
+        if (initialWarning) {
+          window.setTimeout(() => {
+            collisionWarningEl = containerEl.createEl("div", {
+              cls: "ttimer-settings-warning",
+              text: initialWarning,
+            });
+            dropdown.selectEl.closest(".setting-item")?.insertAdjacentElement(
+              "afterend",
+              collisionWarningEl
+            );
+          }, 0);
+        }
       });
 
     new Setting(containerEl)

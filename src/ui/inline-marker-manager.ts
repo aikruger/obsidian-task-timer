@@ -21,24 +21,53 @@ export class InlineMarkerManager {
       if (!timer.anchor.blockId) continue;
 
       const rawId = timer.anchor.blockId.replace(/^\^/, "");
-      // In newer Obsidian versions, blocks have a data-block-id attribute in reading view
-      const blockEl = el.querySelector<HTMLElement>(`[data-block-id="${rawId}"]`);
-      if (!blockEl) continue;
 
-      const li = blockEl.closest("li.task-list-item") ?? blockEl.closest("li");
-      if (!li) continue;
+      // Strategy 1: Obsidian renders block IDs as <span id="blockid"> or <span id="^blockid">
+      let anchorEl: Element | null =
+        el.querySelector(`span#${CSS.escape(rawId)}`) ??
+        el.querySelector(`span[id="${rawId}"]`) ??
+        el.querySelector(`span[id="^${rawId}"]`);
 
-      if (li.querySelector(`.ttimer-inline-marker[data-timer-id="${timer.id}"]`)) {
+      // Strategy 2: scan all text nodes for the raw block ID token as fallback
+      if (!anchorEl) {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let node: Text | null;
+        while ((node = walker.nextNode() as Text | null)) {
+          if (node.nodeValue?.includes(timer.anchor.blockId)) {
+            anchorEl = node.parentElement;
+            break;
+          }
+        }
+      }
+
+      // Strategy 3: check if the container element itself contains the block ID in its text
+      if (!anchorEl && el.textContent?.includes(timer.anchor.blockId)) {
+        anchorEl = el;
+      }
+
+      if (!anchorEl) {
+        console.debug("[ttimer] postProcessor: no anchor found for blockId", timer.anchor.blockId);
+        continue;
+      }
+
+      const p: Element | null =
+        anchorEl.closest("li.task-list-item") ??
+        anchorEl.closest("li") ??
+        anchorEl.closest("p") ??
+        anchorEl;
+
+      if (!p) continue;
+
+      if (p.querySelector(`.ttimer-inline-marker[data-timer-id="${timer.id}"]`)) {
         continue;
       }
 
       console.debug("[ttimer] postProcessor matched block element", { timerId: timer.id, rawId });
-      this.enhanceMarker(li as HTMLElement, timer);
+      this.enhanceMarker(p as HTMLElement, timer);
     }
   }
 
   private findTimerMarkerNode(root: Node): Node | null {
-    if ((root as HTMLElement).querySelector && (root as HTMLElement).querySelector(".ttimer-inline-marker")) return null;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     let node;
     while ((node = walker.nextNode())) {
@@ -46,7 +75,7 @@ export class InlineMarkerManager {
         return node;
       }
     }
-    console.debug("[ttimer] no marker text node found", root.textContent);
+    console.debug("[ttimer] no marker text node found", root.textContent?.slice(0, 80));
     return null;
   }
 
@@ -85,7 +114,6 @@ export class InlineMarkerManager {
               parent.removeChild(textNode);
 
               console.debug("[ttimer] enhanced marker", { timerId: timer.id, task: timer.anchor.taskTextSnapshot });
-              this.bindMarkerEvents(marker, timer);
           }
       } else {
           const fallback = document.createElement("span");
@@ -97,34 +125,10 @@ export class InlineMarkerManager {
           node.appendChild(fallback);
 
           console.debug("[ttimer] enhanced fallback marker", { timerId: timer.id, task: timer.anchor.taskTextSnapshot });
-          this.bindMarkerEvents(fallback, timer);
       }
   }
 
-  private bindMarkerEvents(markerEl: HTMLElement, timer: import("../types/models").TaskTimerRecord) {
-    markerEl.addEventListener("click", (evt) => {
-      evt.preventDefault();
-      evt.stopPropagation();
-      console.debug("[ttimer] marker click", timer.id);
-      this.handleClick(evt, timer.id, markerEl);
-    });
-
-    markerEl.addEventListener("mouseenter", (evt) => {
-      this.plugin.popoverManager.pointerInsideMarker = true;
-
-      if (!this.plugin.dataStore.data.settings.hoverPopupEnabled) return;
-      if (!this.shouldOpenPopoverFromEvent(evt)) return;
-
-      this.plugin.popoverManager.scheduleShow(markerEl, timer.id, evt);
-    });
-
-    markerEl.addEventListener("mouseleave", () => {
-      this.plugin.popoverManager.pointerInsideMarker = false;
-      this.plugin.popoverManager.scheduleHide();
-    });
-  }
-
-  private handleClick(e: MouseEvent, timerId: string, anchorEl: HTMLElement) {
+  public handleClick(e: MouseEvent, timerId: string, anchorEl: HTMLElement) {
     const clickAction = this.plugin.dataStore.data.settings.clickAction;
     console.debug("[ttimer] handleClick", { timerId, clickAction });
 
@@ -146,7 +150,7 @@ export class InlineMarkerManager {
     }
   }
 
-  private shouldOpenPopoverFromEvent(evt: MouseEvent): boolean {
+  public shouldOpenPopoverFromEvent(evt: MouseEvent): boolean {
     const mode = this.plugin.dataStore.data.settings.hoverTriggerMode;
     if (mode === "none") return false;
     if (mode === "hover") return true;

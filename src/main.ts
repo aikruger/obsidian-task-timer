@@ -13,6 +13,7 @@ import { ReportingService } from "./reporting/reporting-service";
 import { generateBlockId } from "./utils/block-id";
 import { InternalTimerProvider } from "./providers/internal-timer-provider";
 import { StatsModal } from "./views/stats-modal";
+import { KeyboardStateTracker } from "./ui/keyboard-state-tracker";
 
 export default class TaskGeniusTimerPlugin extends Plugin {
   public dataStore: DataStore;
@@ -22,6 +23,8 @@ export default class TaskGeniusTimerPlugin extends Plugin {
   public popoverManager: TimerPopover;
   public reportingService: ReportingService;
   public provider: InternalTimerProvider;
+  public keyboardTracker: KeyboardStateTracker;
+  public inlineMarkerManager: InlineMarkerManager;
 
   async onload() {
     await this.loadPluginData();
@@ -37,8 +40,49 @@ export default class TaskGeniusTimerPlugin extends Plugin {
 
     this.registerView(TASK_TIMER_VIEW_TYPE, (leaf) => new TaskTimerView(leaf, this.timerService, this));
 
-    const inlineMarkerManager = new InlineMarkerManager(this.app, this.timerService, this);
-    this.registerMarkdownPostProcessor((el, ctx) => inlineMarkerManager.postProcessor(el, ctx));
+    this.inlineMarkerManager = new InlineMarkerManager(this.app, this.timerService, this);
+    this.registerMarkdownPostProcessor((el, ctx) => this.inlineMarkerManager.postProcessor(el, ctx));
+
+    this.keyboardTracker = new KeyboardStateTracker(this);
+    this.keyboardTracker.register();
+
+    this.registerDomEvent(document.body, "click", (event: MouseEvent) => {
+      const marker = (event.target as Element).closest(".ttimer-inline-marker");
+      if (!marker) return;
+      const timerId = (marker as HTMLElement).dataset.timerId;
+      if (!timerId) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      console.debug("[ttimer] delegated click", timerId);
+      this.inlineMarkerManager.handleClick(event, timerId, marker as HTMLElement);
+    });
+
+    this.registerDomEvent(document.body, "mouseover", (event: MouseEvent) => {
+      const marker = (event.target as Element).closest(".ttimer-inline-marker");
+      if (!marker) return;
+      // Prevent firing repeatedly on every child element re-entry
+      if (event.target !== marker && marker.contains(event.target as Node)) return;
+      const timerId = (marker as HTMLElement).dataset.timerId;
+      if (!timerId) return;
+      this.popoverManager.pointerInsideMarker = true;
+      const settings = this.dataStore.data.settings;
+      if (
+        settings.hoverPopupEnabled &&
+        this.inlineMarkerManager.shouldOpenPopoverFromEvent(event)
+      ) {
+        this.popoverManager.scheduleShow(marker as HTMLElement, timerId, event);
+      }
+    });
+
+    this.registerDomEvent(document.body, "mouseout", (event: MouseEvent) => {
+      const marker = (event.target as Element).closest(".ttimer-inline-marker");
+      if (!marker) return;
+      // Only trigger leave when exiting the marker entirely, not moving between children
+      const relatedTarget = event.relatedTarget as Node | null;
+      if (relatedTarget && marker.contains(relatedTarget)) return;
+      this.popoverManager.pointerInsideMarker = false;
+      this.popoverManager.scheduleHide();
+    });
 
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
@@ -262,6 +306,7 @@ export default class TaskGeniusTimerPlugin extends Plugin {
 
   async onunload() {
     this.popoverManager.hidePopover();
+    this.keyboardTracker.unregister();
     // Ensure last state changes are saved immediately
     await this.dataStore.saveImmediate();
   }

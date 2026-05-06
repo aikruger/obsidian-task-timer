@@ -1,30 +1,21 @@
 .ttimer-inline-marker {
   cursor: pointer;
-  padding: 0 4px;
-  border-radius: 4px;
-  margin: 0 4px;
-  font-weight: bold;
+  display: inline-block;
+  padding: 0 2px;
+  border-radius: 3px;
+  pointer-events: all !important;
+  position: relative;
+  z-index: 10;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.ttimer-inline-marker--running {
-  color: var(--color-green);
-  background-color: var(--color-green-10);
-}
+.ttimer-inline-marker:hover { opacity: 0.75; }
 
-.ttimer-inline-marker--paused {
-  color: var(--color-yellow);
-  background-color: var(--color-yellow-10);
-}
-
-.ttimer-inline-marker--stopped {
-  color: var(--color-red);
-  background-color: var(--color-red-10);
-}
-
-.ttimer-inline-marker--archived {
-  color: var(--text-muted);
-  background-color: var(--background-modifier-hover);
-}
+.ttimer-inline-marker--running  { color: var(--color-green, #2e7d32); }
+.ttimer-inline-marker--paused   { color: var(--color-yellow, #f9a825); }
+.ttimer-inline-marker--stopped  { color: var(--color-red, #c62828); }
+.ttimer-inline-marker--archived { color: var(--text-faint); }
 
 .ttimer-card {
   border: 1px solid var(--background-modifier-border);
@@ -74,37 +65,90 @@
 }
 
 .ttimer-popover {
-  position: fixed;
-  z-index: calc(var(--layer-popover) + 10);
-  background-color: var(--background-primary);
+  position: fixed !important;
+  z-index: calc(var(--layer-popover, 250) + 10);
+  min-width: 220px;
+  max-width: 300px;
+  background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  box-shadow: var(--shadow-l);
-  border-radius: 6px;
-  padding: 10px;
-  min-width: 200px;
+  border-radius: var(--radius-m, 6px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text-normal);
+  pointer-events: all;
+}
+
+.ttimer-popover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+
+.ttimer-popover-text {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.ttimer-popover-time {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin: 4px 0;
+  color: var(--text-normal);
 }
 
 .ttimer-popover-badge {
-  text-align: center;
-  font-size: 0.85em;
-  font-weight: bold;
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 99px;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
   margin-bottom: 8px;
 }
 
-.ttimer-popover-badge--running { color: var(--color-green); }
-.ttimer-popover-badge--paused { color: var(--color-yellow); }
-.ttimer-popover-badge--stopped { color: var(--color-red); }
-.ttimer-popover-badge--archived { color: var(--text-muted); }
+.ttimer-popover-badge--running  { background: var(--color-green, #2e7d32); color: #fff; }
+.ttimer-popover-badge--paused   { background: var(--color-yellow, #f9a825); color: #111; }
+.ttimer-popover-badge--stopped  { background: var(--color-red, #c62828); color: #fff; }
+.ttimer-popover-badge--archived { background: var(--background-modifier-border); color: var(--text-muted); }
+
+.ttimer-popover-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ttimer-settings-warning {
+  background: var(--background-modifier-error, #f9e0e0);
+  color: var(--text-error, #c62828);
+  border: 1px solid var(--color-red, #c62828);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 12px;
+  margin: -8px 0 12px 0;
+  line-height: 1.5;
+}
 
 .ttimer-popover-close {
-  background: transparent;
-  box-shadow: none;
+  background: none;
   border: none;
   cursor: pointer;
-  padding: 0;
-  font-size: 1.2em;
+  color: var(--text-faint);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+  flex-shrink: 0;
 }
+
+.ttimer-popover-close:hover { color: var(--text-normal); }
 
 .ttimer-popover-open-sidebar,
 .ttimer-popover-delete {
@@ -122,18 +166,6 @@
 .ttimer-btn-danger:hover,
 .ttimer-popover-delete:hover {
   filter: brightness(0.95);
-}
-
-.ttimer-popover-text {
-  font-weight: 500;
-  margin-bottom: 5px;
-}
-
-.ttimer-popover-time {
-  font-family: var(--font-monospace);
-  font-size: 1.2em;
-  margin-bottom: 8px;
-  text-align: center;
 }
 
 .ttimer-popover-buttons {
