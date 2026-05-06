@@ -14,6 +14,8 @@ import { generateBlockId } from "./utils/block-id";
 import { InternalTimerProvider } from "./providers/internal-timer-provider";
 import { StatsModal } from "./views/stats-modal";
 import { KeyboardStateTracker } from "./ui/keyboard-state-tracker";
+import { InlineMarkerRemover } from "./editor/inline-marker-remover";
+import { ConfirmModal } from "./ui/confirm-modal";
 import { tlog, terr, DEBUG } from "./utils/debug-logger";
 
 export default class TaskGeniusTimerPlugin extends Plugin {
@@ -26,16 +28,26 @@ export default class TaskGeniusTimerPlugin extends Plugin {
   public provider: InternalTimerProvider;
   public keyboardTracker: KeyboardStateTracker;
   public inlineMarkerManager: InlineMarkerManager;
+  public markerRemover: InlineMarkerRemover;
 
   async onload() {
     await this.loadPluginData();
 
-    this.timerService = new TimerService(this.dataStore);
+    this.provider = new InternalTimerProvider();
+    this.markerRemover = new InlineMarkerRemover(this.app);
+    this.timerService = new TimerService(this.dataStore, this.provider, this.markerRemover);
+
+    this.timerService.on("timerDeleted", (timerId) => {
+        if (this.popoverManager.currentTimerId === timerId) {
+            this.popoverManager.hidePopover();
+        }
+        this.refreshTimerViews();
+    });
+
     this.taskLocator = new TaskLocator(this.app);
     this.archiveWatcher = new TaskArchiveWatcher(this.app, this.timerService, this.taskLocator, this.dataStore.data.settings);
     this.popoverManager = new TimerPopover(this, this.timerService);
     this.reportingService = new ReportingService(() => this.dataStore.timers);
-    this.provider = new InternalTimerProvider();
 
     this.addSettingTab(new TaskTimerSettingTab(this.app, this, this.dataStore.data.settings));
 
@@ -256,11 +268,18 @@ export default class TaskGeniusTimerPlugin extends Plugin {
           return;
         }
 
-        const confirmed = window.confirm(`Delete timer for "${timer.anchor.taskTextSnapshot}"?`);
-        if (!confirmed) return;
-
-        await this.deleteTimerAndMaybeCleanup(timer.id, { removeMarker: false, removeBlockId: false });
-        new Notice("Timer deleted.");
+        new ConfirmModal(
+          this.app,
+          `Delete timer for:\n"${timer.anchor.taskTextSnapshot.slice(0, 60)}"`,
+          "This will remove the ⏱ marker from the task line.",
+          async (confirmed) => {
+            if (confirmed) {
+              const removeBlockId = this.dataStore.data.settings.removeBlockIdOnDelete ?? false;
+              await this.timerService.deleteTimer(timer.id, { removeBlockId });
+              new Notice("Timer deleted.");
+            }
+          }
+        ).open();
       }
     });
 
@@ -269,7 +288,7 @@ export default class TaskGeniusTimerPlugin extends Plugin {
       name: "Delete orphaned timers",
       callback: async () => {
         const allTimers = [...this.timerService.getActiveTimers(), ...this.timerService.getArchivedTimers()];
-        const invalidTimers = [];
+        const invalidTimers: TaskTimerRecord[] = [];
 
         for (const timer of allTimers) {
            const file = this.app.vault.getAbstractFileByPath(timer.anchor.filePath);
@@ -290,14 +309,19 @@ export default class TaskGeniusTimerPlugin extends Plugin {
             return;
         }
 
-        const confirmed = window.confirm(`Found ${invalidTimers.length} orphaned timers. Delete them?`);
-        if (confirmed) {
-            for (const timer of invalidTimers) {
-                this.timerService.delete(timer.id);
+        new ConfirmModal(
+          this.app,
+          `Found ${invalidTimers.length} orphaned timers.`,
+          "Do you want to delete them permanently?",
+          async (confirmed) => {
+            if (confirmed) {
+              for (const timer of invalidTimers) {
+                  await this.timerService.deleteTimer(timer.id, { removeBlockId: false });
+              }
+              new Notice(`Deleted ${invalidTimers.length} orphaned timers.`);
             }
-            this.refreshTimerViews();
-            new Notice(`Deleted ${invalidTimers.length} orphaned timers.`);
-        }
+          }
+        ).open();
       }
     });
 
@@ -419,66 +443,6 @@ export default class TaskGeniusTimerPlugin extends Plugin {
 
   async saveSettings() {
     await this.dataStore.save();
-  }
-
-  async deleteTimerAndMaybeCleanup(timerId: string, options: { removeMarker?: boolean, removeBlockId?: boolean } = {}) {
-    const { removeMarker = false, removeBlockId = false } = options;
-    const timer = this.timerService.getTimer(timerId);
-    if (!timer) return;
-
-    if (this.popoverManager.currentTimerId === timerId) {
-      this.popoverManager.hidePopover();
-    }
-
-    this.timerService.delete(timerId);
-
-    if (removeMarker || removeBlockId) {
-      await this.cleanupTaskLine(timer, { removeMarker, removeBlockId });
-    }
-
-    this.refreshTimerViews();
-  }
-
-  async cleanupTaskLine(timer: TaskTimerRecord, options: { removeMarker: boolean, removeBlockId: boolean }) {
-    const file = this.app.vault.getAbstractFileByPath(timer.anchor.filePath);
-    if (!(file instanceof TFile)) return;
-
-    const content = await this.app.vault.read(file);
-    const lines = content.split("\n");
-    let targetIndex = -1;
-
-    if (timer.anchor.blockId) {
-      targetIndex = lines.findIndex(line => line.includes(timer.anchor.blockId as string));
-    }
-
-    if (targetIndex === -1 && Number.isInteger(timer.anchor.line) && lines[timer.anchor.line]) {
-      targetIndex = timer.anchor.line;
-    }
-
-    if (targetIndex === -1 || !lines[targetIndex]) return;
-
-    let line = lines[targetIndex] as string;
-
-    if (options.removeMarker) {
-      line = line.replace(/\s*\[?⏱\]?\s*/g, " ");
-      line = line.replace(/\s{2,}/g, " ").trimEnd();
-
-      const originalLine = lines[targetIndex];
-      if (originalLine && /^\s*-\s*\[[ xX]\]/.test(originalLine)) {
-        const leading = originalLine.match(/^(\s*-\s*\[[ xX]\]\s*)/);
-        if (leading) {
-          const rest = line.replace(/^(\s*-\s*\[[ xX]\]\s*)/, "");
-          line = leading[1] + rest;
-        }
-      }
-    }
-
-    if (options.removeBlockId && timer.anchor.blockId) {
-      line = line.replace(new RegExp(`\\s*\\${timer.anchor.blockId}$`), "");
-    }
-
-    lines[targetIndex] = line;
-    await this.app.vault.modify(file, lines.join("\n"));
   }
 
   refreshTimerViews() {

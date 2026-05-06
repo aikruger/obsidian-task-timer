@@ -2,6 +2,8 @@ import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
 import { TimerService } from "../domain/timer-service";
 import { formatDurationMs } from "../domain/time-format";
 import TaskGeniusTimerPlugin from "../main";
+import { ConfirmModal } from "../ui/confirm-modal";
+import { tlog } from "../utils/debug-logger";
 
 export const TASK_TIMER_VIEW_TYPE = "task-timer-view";
 
@@ -108,16 +110,26 @@ export class TaskTimerView extends ItemView {
 
       const deleteBtn = btnContainer.createEl("button", { text: "Delete" });
       deleteBtn.addClass("ttimer-btn-danger");
-      deleteBtn.onclick = async () => {
-        if (timer.state === "running") {
-          this.timerService.stop(timer.id);
-        }
+      deleteBtn.onclick = async (e) => {
+        e.stopPropagation();
+        tlog("sidebar", `Delete button clicked`, { timerId: timer.id });
 
-        const confirmed = window.confirm(`Delete timer for "${timer.anchor.taskTextSnapshot}"? This removes it from plugin records.`);
-        if (!confirmed) return;
-
-        await this.plugin.deleteTimerAndMaybeCleanup(timer.id, { removeMarker: false, removeBlockId: false });
-        this.render();
+        new ConfirmModal(
+          this.plugin.app,
+          `Delete timer for:\n"${timer.anchor.taskTextSnapshot.slice(0, 60)}"`,
+          "This will remove the ⏱ marker from the task line.",
+          async (confirmed) => {
+            if (confirmed) {
+              const removeBlockId = this.plugin.dataStore.data.settings.removeBlockIdOnDelete ?? false;
+              tlog("sidebar", `Calling deleteTimer`, { timerId: timer.id, removeBlockId });
+              await this.timerService.deleteTimer(timer.id, { removeBlockId });
+              tlog("sidebar", `✅ deleteTimer resolved`);
+              this.render();
+            } else {
+              tlog("sidebar", `Delete cancelled by user`);
+            }
+          }
+        ).open();
       };
     });
 
@@ -138,12 +150,26 @@ export class TaskTimerView extends ItemView {
                 const btnContainer = card.createEl("div", { cls: "ttimer-card-buttons" });
                 const deleteBtn = btnContainer.createEl("button", { text: "Delete" });
                 deleteBtn.addClass("ttimer-btn-danger");
-                deleteBtn.onclick = async () => {
-                  const confirmed = window.confirm(`Delete timer for "${timer.anchor.taskTextSnapshot}"? This removes it from plugin records.`);
-                  if (!confirmed) return;
+                deleteBtn.onclick = async (e) => {
+                  e.stopPropagation();
+                  tlog("sidebar", `Archived delete button clicked`, { timerId: timer.id });
 
-                  await this.plugin.deleteTimerAndMaybeCleanup(timer.id, { removeMarker: false, removeBlockId: false });
-                  this.render();
+                  new ConfirmModal(
+                    this.plugin.app,
+                    `Delete timer for:\n"${timer.anchor.taskTextSnapshot.slice(0, 60)}"`,
+                    "This will remove the ⏱ marker from the task line.",
+                    async (confirmed) => {
+                      if (confirmed) {
+                        const removeBlockId = this.plugin.dataStore.data.settings.removeBlockIdOnDelete ?? false;
+                        tlog("sidebar", `Calling deleteTimer`, { timerId: timer.id, removeBlockId });
+                        await this.timerService.deleteTimer(timer.id, { removeBlockId });
+                        tlog("sidebar", `✅ deleteTimer resolved`);
+                        this.render();
+                      } else {
+                        tlog("sidebar", `Delete cancelled by user`);
+                      }
+                    }
+                  ).open();
                 };
             });
         }

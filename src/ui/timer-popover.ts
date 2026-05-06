@@ -1,6 +1,7 @@
 import { TimerService } from "../domain/timer-service";
 import { formatDurationMs } from "../domain/time-format";
 import TaskGeniusTimerPlugin from "../main";
+import { ConfirmModal } from "./confirm-modal";
 import { tlog, terr } from "../utils/debug-logger";
 
 export class TimerPopover {
@@ -229,19 +230,18 @@ export class TimerPopover {
       const timerToDel = this.timerService.getTimer(timer.id);
       if (!timerToDel) return;
 
-      if (timerToDel.state === "running") {
-        this.timerService.stop(timerToDel.id);
-      }
-
-      const confirmed = window.confirm(`Delete timer for "${timerToDel.anchor.taskTextSnapshot}"?`);
-      if (!confirmed) return;
-
-      await this.plugin.deleteTimerAndMaybeCleanup(timerToDel.id, {
-        removeMarker: false,
-        removeBlockId: false
-      });
-
-      this.hidePopover();
+      new ConfirmModal(
+        this.plugin.app,
+        `Delete timer for:\n"${timerToDel.anchor.taskTextSnapshot.slice(0, 60)}"`,
+        "This will remove the ⏱ marker from the task line.",
+        async (confirmed) => {
+          if (confirmed) {
+            const removeBlockId = this.plugin.dataStore.data.settings.removeBlockIdOnDelete ?? false;
+            await this.timerService.deleteTimer(timerToDel.id, { removeBlockId });
+            this.hidePopover();
+          }
+        }
+      ).open();
     };
   }
 

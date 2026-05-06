@@ -17,4 +17,5 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   clickAction: "both",
   exportFolder: "",
   providerSelection: "internal",
+  removeBlockIdOnDelete: false,
 };

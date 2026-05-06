@@ -254,6 +254,21 @@ export class TaskTimerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Remove block ID when deleting timer")
+      .setDesc(
+        "If enabled, deleting a timer will also remove the ^ttimer-... block reference " +
+        "from the task line. Disable this to keep the block ID for linking purposes."
+      )
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.dataStore.data.settings.removeBlockIdOnDelete ?? false)
+          .onChange(async (val) => {
+            this.plugin.dataStore.data.settings.removeBlockIdOnDelete = val;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
       .setName("Export folder")
       .setDesc("Where to save exported reports.")
       .addText((text) =>

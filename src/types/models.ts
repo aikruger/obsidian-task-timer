@@ -49,4 +49,5 @@ export interface PluginSettings {
   clickAction: "none" | "sidebar" | "popover" | "both";
   exportFolder: string;
   providerSelection: "internal" | "timekeep" | "legacy-task-timer";
+  removeBlockIdOnDelete: boolean;
 }

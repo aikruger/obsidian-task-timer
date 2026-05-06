@@ -1,8 +1,27 @@
 import { TaskTimerRecord, TimerState } from "../types/models";
 import { DataStore } from "../persistence/data-store";
+import { TimerProvider } from "../providers/timer-provider";
+import { InlineMarkerRemover } from "../editor/inline-marker-remover";
+import { tlog, twarn } from "../utils/debug-logger";
 
 export class TimerService {
-  constructor(private dataStore: DataStore) {}
+  private events: Record<string, ((...args: unknown[]) => void)[]> = {};
+
+  constructor(
+    private dataStore: DataStore,
+    private provider: TimerProvider,
+    private markerRemover: InlineMarkerRemover
+  ) {}
+
+  public on(event: string, callback: (...args: unknown[]) => void) {
+    if (!this.events[event]) this.events[event] = [];
+    this.events[event].push(callback);
+  }
+
+  public emit(event: string, ...args: unknown[]) {
+    if (!this.events[event]) return;
+    this.events[event].forEach(cb => cb(...args));
+  }
 
   public getTimer(id: string): TaskTimerRecord | undefined {
     return this.dataStore.timers.find((t) => t.id === id);
@@ -86,7 +105,47 @@ export class TimerService {
     this.dataStore.updateTimer(timer);
   }
 
+  public async deleteTimer(
+    timerId: string,
+    options: { removeBlockId: boolean } = { removeBlockId: false }
+  ): Promise<void> {
+    tlog("timerService", `deleteTimer called`, { timerId, options });
+
+    const timer = this.getTimer(timerId);
+    if (!timer) {
+      twarn("timerService", `deleteTimer: timer not found`, { timerId });
+      return;
+    }
+
+    // 1. Stop any running segment first
+    if (timer.state === "running") {
+      tlog("timerService", `Auto-stopping running timer before delete`, { timerId });
+      this.stop(timerId);
+    }
+
+    // 2. Remove the inline marker from the markdown file FIRST
+    //    so we still have anchor data available
+    const removed = await this.markerRemover.removeMarkerFromFile(timer, options);
+    if (!removed) {
+      twarn("timerService", `Marker removal from file failed or was skipped. Proceeding with record deletion anyway.`, { timerId });
+    }
+
+    // 3. Remove the record from the store
+    this.dataStore.deleteTimer(timerId);
+    tlog("timerService", `✅ Timer record removed from store`, { timerId });
+
+    // 4. Notify provider if applicable
+    await this.provider.deleteTimer(timerId).catch((e: unknown) => {
+      twarn("timerService", `Provider deleteTimer failed (non-fatal)`, e);
+    });
+
+    // 5. Notify UI
+    this.emit("timerDeleted", timerId);
+    tlog("timerService", `✅ deleteTimer complete`, { timerId });
+  }
+
   public delete(timerId: string) {
+    // Legacy alias to not break other un-refactored callers yet
     this.dataStore.deleteTimer(timerId);
   }
 
