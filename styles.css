@@ -1,8 +1,133 @@
-/*
+/* styles.css */
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.ttimer-inline-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: middle;
+}
+.ttimer-pill-icon { font-style: normal; }
+.ttimer-pill-time { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.ttimer-inline-marker--running  { background: var(--color-green, #2d6a2d);  color: #fff; }
+.ttimer-inline-marker--paused   { background: var(--color-yellow, #8a6800); color: #fff; }
+.ttimer-inline-marker--stopped  { background: var(--color-red, #7a1e1e);    color: #fff; }
+.ttimer-inline-marker--archived { background: var(--background-modifier-border); color: var(--text-muted); }
 
-If your plugin does not need CSS, delete this file.
+.ttimer-card {
+  border-left: 3px solid transparent;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border-radius: 4px;
+  background: var(--background-secondary);
+}
 
-*/
+.ttimer-card--running  { border-left-color: var(--color-success, #437a22); }
+.ttimer-card--paused   { border-left-color: var(--color-gold, #d19900); }
+.ttimer-card--stopped  { border-left-color: var(--color-error, #a12c7b); }
+.ttimer-card--archived { border-left-color: transparent; opacity: 0.55; }
+
+.ttimer-popover {
+  position: fixed;
+  z-index: 1000;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 16px));
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.85em;
+}
+
+.ttimer-popover-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.ttimer-popover-title {
+  font-weight: 600;
+  font-size: 0.9em;
+  color: var(--text-normal);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ttimer-popover-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.ttimer-popover-icon-btn:hover { background: var(--background-modifier-hover); }
+
+.ttimer-popover-time {
+  font-size: 1.3em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--text-normal);
+  text-align: center;
+  letter-spacing: 0.05em;
+}
+
+.ttimer-popover-buttons,
+.ttimer-popover-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ttimer-btn {
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  font-size: 0.85em;
+  cursor: pointer;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+.ttimer-btn:hover { background: var(--background-modifier-hover); }
+.ttimer-btn--start  { border-color: #2d6a2d; color: #2d6a2d; }
+.ttimer-btn--pause  { border-color: #8a6800; color: #8a6800; }
+.ttimer-btn--stop   { border-color: #7a1e1e; color: #7a1e1e; }
+.ttimer-btn--archive { border-color: var(--text-muted); }
+.ttimer-btn--delete { border-color: #7a1e1e; color: #7a1e1e; }
+
+.ttimer-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 8px;
+}
+.ttimer-view-title { margin: 0; }
+
+.ttimer-refresh-btn {
+  background: none;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1.1em;
+  padding: 2px 6px;
+  color: var(--text-muted);
+}
+.ttimer-refresh-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.ttimer-refresh-btn:disabled { opacity: 0.4; cursor: not-allowed; }
