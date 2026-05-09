@@ -250,15 +250,30 @@
   background: var(--background-modifier-hover);
 }
 
-/* ── Sort badge ──────────────────────────────────────────────── */
-.ttimer-sort-badge {
-  font-size: calc(0.72em * var(--ttimer-scale, 1));
-  color: var(--text-muted);
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
+/* ── Sort Controls ───────────────────────────────────────────── */
+.ttimer-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ttimer-sort-select {
+  font-size: var(--ttimer-btn-font);
+  padding: var(--ttimer-btn-pad-v) var(--ttimer-btn-pad-h);
   border-radius: 3px;
-  padding: 1px 5px;
-  margin-left: 6px;
-  vertical-align: middle;
-  cursor: default;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  max-width: 88px;
+  flex-shrink: 0;
+}
+
+.ttimer-sort-select:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ttimer-sort-select:focus {
+  outline: 1px solid var(--interactive-accent);
+  outline-offset: 1px;
 }

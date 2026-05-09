@@ -154,18 +154,39 @@ export class AnalyticsView extends ItemView {
     const headerRow = container.createDiv({ cls: 'ttimer-view-header' });
     headerRow.createEl('h3', { text: 'Task Timers', cls: 'ttimer-view-title' });
 
-    // Sort mode badge next to title
+    const actionsRow = headerRow.createDiv({ cls: 'ttimer-view-actions' });
+
     const sortMode = this.plugin.settings.sidebarSortMode ?? 'manual';
-    const sortLabel = sortMode === 'alphabetical' ? 'A–Z' : sortMode === 'recent' ? '🕐' : '';
-    if (sortLabel) {
-      headerRow.createEl('span', {
-        text: sortLabel,
-        cls: 'ttimer-sort-badge',
-        attr: { title: `Sort: ${sortMode}` },
-      });
+
+    const sortSelect = actionsRow.createEl('select', {
+      cls: 'ttimer-sort-select',
+      attr: {
+        title: 'Sidebar sort mode',
+        'aria-label': 'Sidebar sort mode',
+      },
+    });
+
+    const sortOptions: Array<{ value: 'manual' | 'alphabetical' | 'recent'; label: string }> = [
+      { value: 'manual', label: 'Manual' },
+      { value: 'alphabetical', label: 'A–Z' },
+      { value: 'recent', label: 'Recent' },
+    ];
+
+    for (const option of sortOptions) {
+      const opt = sortSelect.createEl('option', { text: option.label });
+      opt.value = option.value;
+      if (option.value === sortMode) opt.selected = true;
     }
 
-    const refreshBtn = headerRow.createEl('button', { cls: 'ttimer-refresh-btn', title: 'Refresh' });
+    sortSelect.addEventListener('change', async () => {
+      const nextMode = sortSelect.value as 'manual' | 'alphabetical' | 'recent';
+      console.log(`[ttimer:analytics-view] sidebar sort mode changed via sidebar: ${sortMode} -> ${nextMode}`);
+      this.plugin.settings.sidebarSortMode = nextMode;
+      await this.plugin.saveSettings();
+      this.render();
+    });
+
+    const refreshBtn = actionsRow.createEl('button', { cls: 'ttimer-refresh-btn', title: 'Refresh' });
     refreshBtn.innerHTML = '↺';
     refreshBtn.addEventListener('click', async () => {
       console.log('[ttimer:analytics-view] refresh triggered');
@@ -182,7 +203,7 @@ export class AnalyticsView extends ItemView {
       }
     });
 
-    const exportBtn = headerRow.createEl('button', {
+    const exportBtn = actionsRow.createEl('button', {
       cls: 'ttimer-refresh-btn',
       title: 'Export all timers to CSV',
     });
@@ -280,7 +301,7 @@ export class AnalyticsView extends ItemView {
 
     // Drag-and-drop only works in manual sort mode
     if (sortMode === 'manual') {
-      this.attachDragHandlers(container, allActive);
+      this.attachDragHandlers(container, visible);
       console.log('[ttimer:analytics-view] drag handlers attached (manual sort mode)');
     } else {
       console.log(`[ttimer:analytics-view] drag disabled — sort mode is "${sortMode}"`);
@@ -364,7 +385,8 @@ export class AnalyticsView extends ItemView {
 
       // Re-build ordered id list from current sort
       const order = [...(this.plugin.store.order ?? [])];
-      const ids = active
+      const manualMovable = active.filter(entry => entry.token.state !== 'running');
+      const ids = manualMovable
         .sort((a, b) => {
           const ai = order.indexOf(a.token.id), bi = order.indexOf(b.token.id);
           if (ai === -1 && bi === -1) return 0;
