@@ -22,3 +22,45 @@ export function computeElapsedMs(
   console.log(`[ttimer] computeElapsedMs: id=${token.id} baseMs=${token.baseMs} liveDelta=${live} total=${token.baseMs + live}`);
   return token.baseMs + live;
 }
+export interface CountdownStatus {
+  isCountdown: boolean;
+  targetMs: number;
+  remainingMs: number;   // negative when in overtime
+  isOvertime: boolean;
+  overtimeMs: number;
+  totalMs: number;       // countdown target + overtime
+}
+
+export function getCountdownStatus(
+  id: string,
+  store: import("../types/store").PluginStore,
+  nowMs: number
+): CountdownStatus | null {
+  const meta = store.meta[id];
+  if (!meta || meta.countdownTargetMs == null) return null;
+
+  const { countdownTargetMs } = meta;
+  // We need elapsed ms from the segments
+  let elapsed = 0;
+  const segments = store.segments[id] ?? [];
+  for (const seg of segments) {
+    const end = seg.endedAt ?? nowMs;
+    elapsed += end - seg.startedAt;
+  }
+
+  const remaining = countdownTargetMs - elapsed;
+  const isOvertime = remaining <= 0;
+  const overtimeMs = isOvertime ? Math.abs(remaining) : 0;
+  const totalMs = elapsed; // actual time spent = full elapsed
+
+  console.log(`[ttimer] getCountdownStatus: id=${id} elapsed=${elapsed} remaining=${remaining} isOvertime=${isOvertime}`);
+
+  return {
+    isCountdown: true,
+    targetMs: countdownTargetMs,
+    remainingMs: remaining,
+    isOvertime,
+    overtimeMs,
+    totalMs,
+  };
+}

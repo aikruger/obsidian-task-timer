@@ -27,6 +27,7 @@ export default class TaskTimerPlugin extends Plugin {
       version: rawData?.version ?? 1,
       segments: rawData?.segments ?? {},
       meta: rawData?.meta ?? {},
+      order: rawData?.order ?? [],
     };
 
     // Hydrate index on startup
@@ -178,6 +179,26 @@ this.addCommand({
     await archiveTimer(token.id, this.app, this.store, this.saveStore.bind(this), this.tokenIndex, "manual");
     new Notice("Timer archived.");
     console.log(`[ttimer:cmd] archive-timer-on-task: archived id=${token.id}`);
+  },
+});
+
+// --- Unarchive timer on current task ---
+this.addCommand({
+  id: "unarchive-timer-on-task",
+  name: "Unarchive timer on current task",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] unarchive-timer-on-task triggered");
+    const file = ctx.file;
+    if (!file) return;
+    const { parseTokenFromLine } = await import("./types/token");
+    const { unarchiveTimer } = await import("./domain/transitions");
+    const cursor = editor.getCursor();
+    const line = editor.getLine(cursor.line);
+    const token = parseTokenFromLine(line);
+    if (!token) { new Notice("No timer on this line."); return; }
+    await unarchiveTimer(token.id, this.app, this.store, this.saveStore.bind(this), this.tokenIndex);
+    new Notice("Timer unarchived.");
+    console.log(`[ttimer:cmd] unarchive-timer-on-task: unarchived id=${token.id}`);
   },
 });
 

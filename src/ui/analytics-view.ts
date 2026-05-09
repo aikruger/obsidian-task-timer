@@ -59,25 +59,36 @@ export class AnalyticsView extends ItemView {
     container.empty();
 
     const allTokens = Object.values(this.plugin.tokenIndex);
-    const active = allTokens.filter(t => t.token.state !== "archived");
     const archived = allTokens.filter(t => t.token.state === "archived");
+
+    // Sort active tokens: running first, then by persisted order
+    const active = allTokens
+      .filter(t => t.token.state !== "archived")
+      .sort((a, b) => {
+        const aRunning = a.token.state === "running" ? 0 : 1;
+        const bRunning = b.token.state === "running" ? 0 : 1;
+        if (aRunning !== bRunning) return aRunning - bRunning;
+        const order = this.plugin.store.order ?? [];
+        const ai = order.indexOf(a.token.id);
+        const bi = order.indexOf(b.token.id);
+        if (ai === -1 && bi === -1) return 0;
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      });
 
     console.log("[ttimer:analytics-view] render", {
       activeCount: active.length,
       archivedCount: archived.length,
     });
 
-    // Header row with refresh button
+    // Header row
     const headerRow = container.createDiv({ cls: "ttimer-view-header" });
     headerRow.createEl("h3", { text: "Task Timers", cls: "ttimer-view-title" });
-
-    const refreshBtn = headerRow.createEl("button", {
-      cls: "ttimer-refresh-btn",
-      title: "Refresh — re-scan all files for timers"
-    });
+    const refreshBtn = headerRow.createEl("button", { cls: "ttimer-refresh-btn", title: "Refresh" });
     refreshBtn.innerHTML = "↺";
     refreshBtn.addEventListener("click", async () => {
-      console.log("[ttimer:analytics-view] refresh triggered by user");
+      console.log("[ttimer:analytics-view] refresh triggered");
       refreshBtn.disabled = true;
       refreshBtn.innerHTML = "…";
       try {
@@ -85,7 +96,6 @@ export class AnalyticsView extends ItemView {
           m.hydrateTokenIndex(this.plugin.app, this.plugin.store)
         );
         await this.plugin.saveStore();
-        console.log("[ttimer:analytics-view] token index refreshed, re-rendering");
         this.render();
       } catch (e) {
         console.error("[ttimer:analytics-view] refresh failed", e);
@@ -93,30 +103,36 @@ export class AnalyticsView extends ItemView {
     });
 
     if (active.length === 0) {
-      container.createEl("p", {
-        text: "No active timers.",
-        cls: "ttimer-empty",
-      });
+      container.createEl("p", { text: "No active timers.", cls: "ttimer-empty" });
     }
 
-    for (const entry of active) {
-        this.renderTimerCard(entry, container);
+    for (let i = 0; i < active.length; i++) {
+      this.renderTimerCard(active[i]!, container, i, active.length);
     }
 
+    // Archived section
     const archSection = container.createEl("details");
     archSection.createEl("summary", { text: `Archived (${archived.length})` });
-
     for (const entry of archived) {
-        const card = archSection.createEl("div", { cls: "ttimer-card ttimer-card--archived" });
-        card.createEl("div", { text: entry.taskText, cls: "ttimer-card-label" });
-        card.createEl("div", {
-          text: formatMs(computeElapsedMs(entry.token, this.plugin.store, Date.now())),
-          cls: "ttimer-card-elapsed",
-        });
+      const card = archSection.createEl("div", { cls: "ttimer-card ttimer-card--archived" });
+      card.createEl("div", { text: entry.taskText, cls: "ttimer-card-label" });
+      card.createEl("div", {
+        text: formatMs(computeElapsedMs(entry.token, this.plugin.store, Date.now())),
+        cls: "ttimer-card-elapsed",
+      });
+      const archBtnRow = card.createDiv({ cls: "ttimer-card-buttons" });
+      const unarchBtn = archBtnRow.createEl("button", { cls: "ttimer-btn ttimer-btn--unarchive", text: "📂" });
+      unarchBtn.title = "Unarchive";
+      unarchBtn.addEventListener("click", async () => {
+        console.log(`[ttimer:analytics-view] unarchive clicked id=${entry.token.id}`);
+        const { unarchiveTimer } = await import("../domain/transitions");
+        await unarchiveTimer(entry.token.id, this.plugin.app, this.plugin.store, this.plugin.saveStore.bind(this.plugin), this.plugin.tokenIndex);
+        this.render();
+      });
     }
   }
 
-  renderTimerCard(entry: LiveTokenIndex[string], container: HTMLElement): void {
+  renderTimerCard(entry: LiveTokenIndex[string], container: HTMLElement, index: number, total: number): void {
     const { token, filePath, lineNo, taskText } = entry;
     console.log(`[ttimer] renderTimerCard: id=${token.id} state=${token.state} baseMs=${token.baseMs}`);
 
@@ -143,6 +159,26 @@ export class AnalyticsView extends ItemView {
 
     // Buttons
     const btnRow = card.createDiv({ cls: "ttimer-card-buttons" });
+
+    const editBtn = btnRow.createEl("button", { cls: "ttimer-btn ttimer-btn--edit", text: "✎", title: "Edit time" });
+    editBtn.addEventListener("click", async () => {
+      console.log(`[ttimer] timerCard: edit time clicked id=${token.id}`);
+      const current = computeElapsedMs(token, this.plugin.store, Date.now());
+      const currentFmt = formatMs(current);
+      const raw = prompt(`Edit time (HH:MM:SS):`, currentFmt);
+      if (raw === null) return;
+      const parts = raw.trim().split(":").map(Number);
+      if (parts.length !== 3 || parts.some(isNaN)) {
+        console.warn(`[ttimer] timerCard: invalid time input="${raw}"`);
+        return;
+      }
+      const [h, m, s] = parts as [number, number, number];
+      const newMs = ((h * 3600) + (m * 60) + s) * 1000;
+      const { editElapsed } = await import("../domain/transitions");
+      await editElapsed(token.id, newMs, this.plugin.app, this.plugin.store, this.plugin.saveStore.bind(this.plugin), this.plugin.tokenIndex);
+      this.render();
+    });
+
     if (token.state !== "running") {
       const startBtn = btnRow.createEl("button", { cls: "ttimer-btn ttimer-btn--start", text: "▶" });
       startBtn.addEventListener("click", async () => {
@@ -167,6 +203,54 @@ export class AnalyticsView extends ItemView {
         this.render();
       });
     }
+    // Reorder buttons (only for non-running tasks since running float to top automatically)
+    if (entry.token.state !== "running") {
+      if (index > 0) {
+        const upBtn = btnRow.createEl("button", { cls: "ttimer-btn ttimer-btn--order", text: "↑", title: "Move up" });
+        upBtn.addEventListener("click", async () => {
+          console.log(`[ttimer] timerCard: move up id=${token.id} index=${index}`);
+          const order = [...(this.plugin.store.order ?? [])];
+          const ids = Object.values(this.plugin.tokenIndex)
+            .filter(t => t.token.state !== "archived")
+            .sort((a, b) => {
+              const ai = order.indexOf(a.token.id), bi = order.indexOf(b.token.id);
+              if (ai === -1 && bi === -1) return 0;
+              if (ai === -1) return 1; if (bi === -1) return -1;
+              return ai - bi;
+            })
+            .map(t => t.token.id);
+          const pos = ids.indexOf(token.id);
+          if (pos > 0) { [ids[pos - 1], ids[pos]] = [ids[pos]!, ids[pos - 1]!]; }
+          this.plugin.store.order = ids;
+          await this.plugin.saveStore();
+          console.log(`[ttimer] timerCard: new order saved after move-up`);
+          this.render();
+        });
+      }
+      if (index < total - 1) {
+        const downBtn = btnRow.createEl("button", { cls: "ttimer-btn ttimer-btn--order", text: "↓", title: "Move down" });
+        downBtn.addEventListener("click", async () => {
+          console.log(`[ttimer] timerCard: move down id=${token.id} index=${index}`);
+          const order = [...(this.plugin.store.order ?? [])];
+          const ids = Object.values(this.plugin.tokenIndex)
+            .filter(t => t.token.state !== "archived")
+            .sort((a, b) => {
+              const ai = order.indexOf(a.token.id), bi = order.indexOf(b.token.id);
+              if (ai === -1 && bi === -1) return 0;
+              if (ai === -1) return 1; if (bi === -1) return -1;
+              return ai - bi;
+            })
+            .map(t => t.token.id);
+          const pos = ids.indexOf(token.id);
+          if (pos < ids.length - 1) { [ids[pos], ids[pos + 1]] = [ids[pos + 1]!, ids[pos]!]; }
+          this.plugin.store.order = ids;
+          await this.plugin.saveStore();
+          console.log(`[ttimer] timerCard: new order saved after move-down`);
+          this.render();
+        });
+      }
+    }
+
     const archiveBtn = btnRow.createEl("button", { cls: "ttimer-btn", text: "📦" });
     archiveBtn.addEventListener("click", async () => {
         console.log(`[ttimer] timerCard: archive clicked id=${token.id}`);

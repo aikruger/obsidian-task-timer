@@ -14,6 +14,8 @@ export interface TokenMeta {
   taskTextSnapshot: string;
   firstSeenAt: number;
   archivedAt?: number;
+  countdownTargetMs?: number;  // if set, timer counts down from this value
+  overtimeStartedAt?: number;  // epoch ms when countdown reached zero
 }
 
 export interface PluginStore {
@@ -22,4 +24,5 @@ export interface PluginStore {
   segments: Record<string, SegmentEntry[]>;
   // lightweight metadata per known token — updated on every state change
   meta: Record<string, TokenMeta>;
+  order: string[];  // array of token IDs in display order; tokens not in list appear last
 }

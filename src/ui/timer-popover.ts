@@ -1,7 +1,7 @@
 import { App } from "obsidian";
 import { PluginStore } from "../types/store";
 import { LiveTokenIndex } from "../domain/hydration";
-import { computeElapsedMs } from "../domain/elapsed";
+import { computeElapsedMs, getCountdownStatus } from "../domain/elapsed";
 import { startTimer, pauseTimer, stopTimer, archiveTimer, deleteTimer } from "../domain/transitions";
 import TaskTimerPlugin from "../main";
 
@@ -91,6 +91,23 @@ export function showTimerPopover(
       if (!fresh) { cleanup(); return; }
       const timeEl = popover.querySelector<HTMLElement>(".ttimer-popover-time");
       if (timeEl) timeEl.textContent = formatMs(computeElapsedMs(fresh.token, store, Date.now()));
+
+      // Update countdown label
+      const cdLabel = popover.querySelector<HTMLElement>(".ttimer-countdown-label");
+      if (cdLabel) {
+        const cdStatus = getCountdownStatus(id, store, Date.now());
+        if (cdStatus) {
+          if (cdStatus.isOvertime) {
+            cdLabel.textContent = `⚠ Overtime: +${formatMs(cdStatus.overtimeMs)}`;
+            cdLabel.classList.add("ttimer-countdown--overtime");
+            cdLabel.classList.remove("ttimer-countdown--normal");
+          } else {
+            cdLabel.textContent = `⏳ ${formatMs(cdStatus.remainingMs)} remaining`;
+            cdLabel.classList.remove("ttimer-countdown--overtime");
+            cdLabel.classList.add("ttimer-countdown--normal");
+          }
+        }
+      }
     }, 1000);
   }
 
@@ -136,11 +153,67 @@ function buildPopoverContent(
   const elapsed = entry ? computeElapsedMs(entry.token, store, Date.now()) : token.baseMs;
   popover.createEl("div", { cls: "ttimer-popover-time", text: formatMs(elapsed) });
 
-  // Control buttons row
-  const btnRow = popover.createDiv({ cls: "ttimer-popover-buttons" });
+  // Countdown display (if enabled)
+  const meta = store.meta[id];
+  const cdStatus = getCountdownStatus(id, store, Date.now());
+
+  if (cdStatus) {
+    const cdRow = popover.createDiv({ cls: "ttimer-popover-countdown" });
+    if (cdStatus.isOvertime) {
+      cdRow.createEl("span", { cls: "ttimer-countdown-label ttimer-countdown--overtime", text: `⚠ Overtime: +${formatMs(cdStatus.overtimeMs)}` });
+    } else {
+      cdRow.createEl("span", { cls: "ttimer-countdown-label", text: `⏳ ${formatMs(cdStatus.remainingMs)} remaining` });
+    }
+  }
+
+  // Set countdown button
+  const cdBtn = popover.createEl("button", { cls: "ttimer-btn ttimer-btn--countdown", text: "⏳ Set countdown" });
+  cdBtn.title = "Set a countdown target for this timer";
+  cdBtn.addEventListener("click", async () => {
+    console.log(`[ttimer] popover: set countdown clicked id=${id}`);
+    const currentTarget = store.meta[id]?.countdownTargetMs;
+    const currentMin = currentTarget ? Math.round(currentTarget / 60000) : 25;
+    const input = prompt("Set countdown (minutes):", String(currentMin));
+    if (input === null) return;
+    const mins = parseFloat(input);
+    if (isNaN(mins) || mins <= 0) {
+      console.warn(`[ttimer] popover: invalid countdown input="${input}"`);
+      return;
+    }
+    const { setCountdown } = await import("../domain/transitions");
+    await setCountdown(id, Math.round(mins * 60000), store, saveStore);
+    console.log(`[ttimer] popover: countdown set to ${mins} minutes for id=${id}`);
+    popover.remove();
+  });
+
+  // Single combined button row
+  const allBtns = popover.createDiv({ cls: "ttimer-popover-buttons" });
+
+  // Edit elapsed time button
+  const editBtn = allBtns.createEl("button", { cls: "ttimer-btn ttimer-btn--edit", text: "✎" });
+  editBtn.title = "Edit time";
+  editBtn.addEventListener("click", async () => {
+    console.log(`[ttimer] popover: edit time clicked id=${id}`);
+    const current = computeElapsedMs(tokenIndex[id]?.token ?? token as any, store, Date.now());
+    const currentFmt = formatMs(current);
+    const raw = prompt(`Edit time (HH:MM:SS):`, currentFmt);
+    if (raw === null) return;
+    const parts = raw.trim().split(":").map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) {
+      console.warn(`[ttimer] popover: invalid time input="${raw}"`);
+      return;
+    }
+    const [h, m, s] = parts as [number, number, number];
+    const newMs = ((h * 3600) + (m * 60) + s) * 1000;
+    const { editElapsed } = await import("../domain/transitions");
+    await editElapsed(id, newMs, app, store, saveStore, tokenIndex);
+    console.log(`[ttimer] popover: time edited to ${raw} (${newMs}ms) for id=${id}`);
+    popover.remove();
+  });
 
   if (token.state !== "running" && token.state !== "archived") {
-    const startBtn = btnRow.createEl("button", { cls: "ttimer-btn ttimer-btn--start", text: "▶ Start" });
+    const startBtn = allBtns.createEl("button", { cls: "ttimer-btn ttimer-btn--start", text: "▶" });
+    startBtn.title = "Start";
     startBtn.addEventListener("click", async () => {
       console.log(`[ttimer] popover: start clicked id=${id}`);
       await startTimer(id, app, store, saveStore, tokenIndex);
@@ -149,7 +222,8 @@ function buildPopoverContent(
   }
 
   if (token.state === "running") {
-    const pauseBtn = btnRow.createEl("button", { cls: "ttimer-btn ttimer-btn--pause", text: "⏸ Pause" });
+    const pauseBtn = allBtns.createEl("button", { cls: "ttimer-btn ttimer-btn--pause", text: "⏸" });
+    pauseBtn.title = "Pause";
     pauseBtn.addEventListener("click", async () => {
       console.log(`[ttimer] popover: pause clicked id=${id}`);
       await pauseTimer(id, app, store, saveStore, tokenIndex);
@@ -158,7 +232,8 @@ function buildPopoverContent(
   }
 
   if (token.state !== "stopped" && token.state !== "archived") {
-    const stopBtn = btnRow.createEl("button", { cls: "ttimer-btn ttimer-btn--stop", text: "■ Stop" });
+    const stopBtn = allBtns.createEl("button", { cls: "ttimer-btn ttimer-btn--stop", text: "■" });
+    stopBtn.title = "Stop";
     stopBtn.addEventListener("click", async () => {
       console.log(`[ttimer] popover: stop clicked id=${id}`);
       await stopTimer(id, app, store, saveStore, tokenIndex);
@@ -166,11 +241,9 @@ function buildPopoverContent(
     });
   }
 
-  // Action buttons row
-  const actionRow = popover.createDiv({ cls: "ttimer-popover-actions" });
-
   if (token.state !== "archived") {
-    const archiveBtn = actionRow.createEl("button", { cls: "ttimer-btn ttimer-btn--archive", text: "📦 Archive" });
+    const archiveBtn = allBtns.createEl("button", { cls: "ttimer-btn ttimer-btn--archive", text: "📦" });
+    archiveBtn.title = "Archive";
     archiveBtn.addEventListener("click", async () => {
       console.log(`[ttimer] popover: archive clicked id=${id}`);
       await archiveTimer(id, app, store, saveStore, tokenIndex, "manual");
@@ -178,7 +251,19 @@ function buildPopoverContent(
     });
   }
 
-  const deleteBtn = actionRow.createEl("button", { cls: "ttimer-btn ttimer-btn--delete", text: "🗑 Delete" });
+  if (token.state === "archived") {
+    const unarchiveBtn = allBtns.createEl("button", { cls: "ttimer-btn ttimer-btn--unarchive", text: "📂" });
+    unarchiveBtn.title = "Unarchive";
+    unarchiveBtn.addEventListener("click", async () => {
+      console.log(`[ttimer] popover: unarchive clicked id=${id}`);
+      const { unarchiveTimer } = await import("../domain/transitions");
+      await unarchiveTimer(id, app, store, saveStore, tokenIndex);
+      popover.remove();
+    });
+  }
+
+  const deleteBtn = allBtns.createEl("button", { cls: "ttimer-btn ttimer-btn--delete", text: "🗑" });
+  deleteBtn.title = "Delete";
   deleteBtn.addEventListener("click", async () => {
     console.log(`[ttimer] popover: delete clicked id=${id}`);
     await deleteTimer(id, app, store, saveStore, tokenIndex);

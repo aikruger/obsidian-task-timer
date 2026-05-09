@@ -276,3 +276,134 @@ export async function deleteTimer(
   await saveStore();
   console.log(`[ttimer] deleteTimer: complete id=${id}`);
 }
+export async function unarchiveTimer(
+  id: string,
+  app: App,
+  store: PluginStore,
+  saveStore: () => Promise<void>,
+  tokenIndex: LiveTokenIndex
+): Promise<void> {
+  console.log(`[ttimer] unarchiveTimer: id=${id}`);
+
+  const location = await resolveTokenLocation(id, app, store);
+  if (!location) {
+    console.error(`[ttimer] unarchiveTimer: cannot resolve token location for id=${id}`);
+    return;
+  }
+
+  const { file, lineNo, line } = location;
+  const token = parseTokenFromLine(line);
+  if (!token) {
+    console.error(`[ttimer] unarchiveTimer: no token found on line for id=${id}`);
+    return;
+  }
+  if (token.state !== "archived") {
+    console.warn(`[ttimer] unarchiveTimer: token is not archived (state=${token.state}), no-op`);
+    return;
+  }
+
+  // Transition archived → stopped (keeps accumulated time)
+  const newToken = buildToken(id, "stopped", token.baseMs);
+  const newLine = line.replace(token.raw, newToken);
+  await writeLineToFile(file, lineNo, newLine, app);
+  console.log(`[ttimer] unarchiveTimer: token updated in file id=${id} newToken="${newToken}"`);
+
+  // Update in-memory index
+  if (tokenIndex[id]) {
+    tokenIndex[id].token.state = "stopped";
+  }
+
+  // Clear archivedAt from meta
+  if (store.meta[id]) {
+    store.meta[id] = { ...store.meta[id]!, archivedAt: undefined };
+  }
+
+  await saveStore();
+  console.log(`[ttimer] unarchiveTimer: completed id=${id}`);
+}
+
+export async function setCountdown(
+  id: string,
+  targetMs: number,
+  store: PluginStore,
+  saveStore: () => Promise<void>,
+): Promise<void> {
+  console.log(`[ttimer] setCountdown: id=${id} targetMs=${targetMs}`);
+  if (!store.meta[id]) {
+    console.error(`[ttimer] setCountdown: no meta entry for id=${id}`);
+    return;
+  }
+  store.meta[id] = {
+    ...store.meta[id]!,
+    countdownTargetMs: targetMs,
+    overtimeStartedAt: undefined,
+  };
+  await saveStore();
+  console.log(`[ttimer] setCountdown: saved targetMs=${targetMs} for id=${id}`);
+}
+
+export async function editElapsed(
+  id: string,
+  newTotalMs: number,
+  app: App,
+  store: PluginStore,
+  saveStore: () => Promise<void>,
+  tokenIndex: LiveTokenIndex
+): Promise<void> {
+  console.log(`[ttimer] editElapsed: id=${id} newTotalMs=${newTotalMs}`);
+
+  if (newTotalMs < 0) {
+    console.error(`[ttimer] editElapsed: negative value rejected id=${id}`);
+    return;
+  }
+
+  const location = await resolveTokenLocation(id, app, store);
+  if (!location) {
+    console.error(`[ttimer] editElapsed: cannot resolve location for id=${id}`);
+    return;
+  }
+
+  const { file, lineNo, line } = location;
+  const token = parseTokenFromLine(line);
+  if (!token) {
+    console.error(`[ttimer] editElapsed: no token found on line for id=${id}`);
+    return;
+  }
+
+  // Replace all segments with a single synthetic closed segment capturing the full new time
+  const syntheticStart = Date.now() - newTotalMs;
+  const newSeg: SegmentEntry = {
+    id,
+    seq: 0,
+    startedAt: syntheticStart,
+    endedAt: Date.now(),
+    filePath: file.path,
+    taskTextSnapshot: store.meta[id]?.taskTextSnapshot ?? extractTaskText(line),
+  };
+  store.segments[id] = [newSeg];
+
+  // If still running, add a new open segment starting now
+  if (token.state === "running") {
+    const openSeg: SegmentEntry = {
+      id,
+      seq: 1,
+      startedAt: Date.now(),
+      filePath: file.path,
+      taskTextSnapshot: store.meta[id]?.taskTextSnapshot ?? extractTaskText(line),
+    };
+    store.segments[id].push(openSeg);
+  }
+
+  // Update baseMs in the file token to 0 (segments now hold all data)
+  const newToken = buildToken(id, token.state, 0);
+  const newLine = line.replace(token.raw, newToken);
+  await writeLineToFile(file, lineNo, newLine, app);
+  console.log(`[ttimer] editElapsed: wrote new token and replaced segments for id=${id}`);
+
+  if (tokenIndex[id]) {
+    tokenIndex[id].token.baseMs = 0;
+  }
+
+  await saveStore();
+  console.log(`[ttimer] editElapsed: complete id=${id} newTotalMs=${newTotalMs}`);
+}
