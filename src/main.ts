@@ -1,5 +1,5 @@
 import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
-import { DEFAULT_SETTINGS, TaskTimerSettings, TaskTimerSettingTab } from "./settings";
+import { DEFAULT_SETTINGS, TaskTimerSettings, TaskTimerSettingTab, applyUiScale } from "./settings";
 import { PluginStore } from "./types/store";
 import { LiveTokenIndex, hydrateTokenIndex } from "./domain/hydration";
 import { registerCompletionWatcher } from "./domain/completion-watcher";
@@ -19,6 +19,8 @@ export default class TaskTimerPlugin extends Plugin {
 
     // Load settings
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    applyUiScale(this.settings.uiScale ?? 1.0);
+    console.log(`[ttimer] onload: applied uiScale=${this.settings.uiScale}`);
     this.addSettingTab(new TaskTimerSettingTab(this.app, this));
 
     // Load store (separately from settings, or extract it if combined)

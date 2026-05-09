@@ -370,40 +370,91 @@ export async function editElapsed(
     return;
   }
 
-  // Replace all segments with a single synthetic closed segment capturing the full new time
-  const syntheticStart = Date.now() - newTotalMs;
-  const newSeg: SegmentEntry = {
+  const now = Date.now();
+
+  // Build a single synthetic closed segment representing the edited total
+  const closedSeg: SegmentEntry = {
     id,
     seq: 0,
-    startedAt: syntheticStart,
-    endedAt: Date.now(),
+    startedAt: now - newTotalMs,
+    endedAt: now,
     filePath: file.path,
     taskTextSnapshot: store.meta[id]?.taskTextSnapshot ?? extractTaskText(line),
   };
-  store.segments[id] = [newSeg];
 
-  // If still running, add a new open segment starting now
   if (token.state === "running") {
+    // Keep one open segment from now so the timer continues from the edited value
     const openSeg: SegmentEntry = {
       id,
       seq: 1,
-      startedAt: Date.now(),
+      startedAt: now,
       filePath: file.path,
       taskTextSnapshot: store.meta[id]?.taskTextSnapshot ?? extractTaskText(line),
     };
-    store.segments[id].push(openSeg);
-  }
-
-  // Update baseMs in the file token to 0 (segments now hold all data)
-  const newToken = buildToken(id, token.state, 0);
-  const newLine = line.replace(token.raw, newToken);
-  await writeLineToFile(file, lineNo, newLine, app);
-  console.log(`[ttimer] editElapsed: wrote new token and replaced segments for id=${id}`);
-
-  if (tokenIndex[id]) {
-    tokenIndex[id].token.baseMs = 0;
+    store.segments[id] = [closedSeg, openSeg];
+    // baseMs stays 0; computeElapsedMs sums segments
+    const newToken = buildToken(id, "running", 0);
+    const newLine = line.replace(token.raw, newToken);
+    await writeLineToFile(file, lineNo, newLine, app);
+    if (tokenIndex[id]) { tokenIndex[id].token.baseMs = 0; }
+    console.log(`[ttimer] editElapsed: running timer restarted from edited value id=${id}`);
+  } else {
+    // stopped / paused — write newTotalMs directly into baseMs, clear segments
+    store.segments[id] = [closedSeg];
+    const newToken = buildToken(id, token.state, newTotalMs);
+    const newLine = line.replace(token.raw, newToken);
+    await writeLineToFile(file, lineNo, newLine, app);
+    if (tokenIndex[id]) { tokenIndex[id].token.baseMs = newTotalMs; }
+    console.log(`[ttimer] editElapsed: stopped/paused timer updated baseMs=${newTotalMs} id=${id}`);
   }
 
   await saveStore();
-  console.log(`[ttimer] editElapsed: complete id=${id} newTotalMs=${newTotalMs}`);
+  console.log(`[ttimer] editElapsed: complete id=${id}`);
+}
+
+export async function clearAllTimers(
+  app: App,
+  store: PluginStore,
+  saveStore: () => Promise<void>,
+  tokenIndex: LiveTokenIndex
+): Promise<void> {
+  console.log(`[ttimer] clearAllTimers: starting — will remove tokens from all files`);
+
+  // Collect all file paths with tokens and strip them from files
+  const allIds = Object.keys(store.meta);
+  const processedFiles = new Set<string>();
+
+  for (const id of allIds) {
+    const location = await resolveTokenLocation(id, app, store).catch(() => null);
+    if (!location) {
+      console.warn(`[ttimer] clearAllTimers: could not resolve location for id=${id}, skipping file edit`);
+      continue;
+    }
+    const { file, lineNo, line } = location;
+    if (processedFiles.has(`${file.path}:${lineNo}`)) continue;
+    processedFiles.add(`${file.path}:${lineNo}`);
+    const token = parseTokenFromLine(line);
+    if (token) {
+      const newLine = line.replace(token.raw, "").replace(/\s+$/, "");
+      try {
+        await writeLineToFile(file, lineNo, newLine, app);
+        console.log(`[ttimer] clearAllTimers: removed token from file=${file.path} line=${lineNo}`);
+      } catch (e) {
+        console.error(`[ttimer] clearAllTimers: failed to write file=${file.path}`, e);
+      }
+    }
+  }
+
+  // Wipe store
+  store.segments = {};
+  store.meta = {};
+  store.order = [];
+
+  // Wipe in-memory index
+  for (const k of Object.keys(tokenIndex)) {
+    delete tokenIndex[k];
+  }
+
+  await saveStore();
+  console.log(`[ttimer] clearAllTimers: complete — store and index cleared`);
 }

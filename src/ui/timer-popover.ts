@@ -151,7 +151,53 @@ function buildPopoverContent(
   // Elapsed time
   const entry = tokenIndex[id];
   const elapsed = entry ? computeElapsedMs(entry.token, store, Date.now()) : token.baseMs;
-  popover.createEl("div", { cls: "ttimer-popover-time", text: formatMs(elapsed) });
+
+  // Elapsed time — inline editable when stopped/paused
+  const timeEl = popover.createEl("div", { cls: "ttimer-popover-time", text: formatMs(elapsed) });
+
+  if (token.state === "stopped" || token.state === "paused") {
+    timeEl.title = "Click to edit time";
+    timeEl.style.cursor = "text";
+    timeEl.style.textDecoration = "underline dotted";
+    timeEl.addEventListener("click", () => {
+      console.log(`[ttimer] popover: inline time edit activated id=${id}`);
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = timeEl.textContent ?? "00:00:00";
+      input.style.width = "80px";
+      input.style.fontSize = "inherit";
+      input.style.fontFamily = "monospace";
+      input.style.border = "1px solid var(--interactive-accent)";
+      input.style.borderRadius = "3px";
+      input.style.padding = "1px 4px";
+      input.style.background = "var(--background-primary)";
+      input.style.color = "var(--text-normal)";
+      input.style.textAlign = "center";
+      timeEl.replaceWith(input);
+      input.focus();
+      input.select();
+
+      const commit = async () => {
+        const parts = input.value.trim().split(":").map(Number);
+        if (parts.length === 3 && !parts.some(isNaN)) {
+          const [h, m, s] = parts as [number, number, number];
+          const newMs = ((h * 3600) + (m * 60) + s) * 1000;
+          console.log(`[ttimer] popover: inline time edit commit id=${id} newMs=${newMs}`);
+          const { editElapsed } = await import("../domain/transitions");
+          await editElapsed(id, newMs, app, store, saveStore, tokenIndex);
+          popover.remove();
+        } else {
+          console.warn(`[ttimer] popover: inline time edit invalid="${input.value}"`);
+          input.replaceWith(timeEl);
+        }
+      };
+      input.addEventListener("blur", commit);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); commit(); }
+        if (e.key === "Escape") { input.replaceWith(timeEl); }
+      });
+    });
+  }
 
   // Countdown display (if enabled)
   const meta = store.meta[id];
@@ -188,28 +234,6 @@ function buildPopoverContent(
 
   // Single combined button row
   const allBtns = popover.createDiv({ cls: "ttimer-popover-buttons" });
-
-  // Edit elapsed time button
-  const editBtn = allBtns.createEl("button", { cls: "ttimer-btn ttimer-btn--edit", text: "✎" });
-  editBtn.title = "Edit time";
-  editBtn.addEventListener("click", async () => {
-    console.log(`[ttimer] popover: edit time clicked id=${id}`);
-    const current = computeElapsedMs(tokenIndex[id]?.token ?? token as any, store, Date.now());
-    const currentFmt = formatMs(current);
-    const raw = prompt(`Edit time (HH:MM:SS):`, currentFmt);
-    if (raw === null) return;
-    const parts = raw.trim().split(":").map(Number);
-    if (parts.length !== 3 || parts.some(isNaN)) {
-      console.warn(`[ttimer] popover: invalid time input="${raw}"`);
-      return;
-    }
-    const [h, m, s] = parts as [number, number, number];
-    const newMs = ((h * 3600) + (m * 60) + s) * 1000;
-    const { editElapsed } = await import("../domain/transitions");
-    await editElapsed(id, newMs, app, store, saveStore, tokenIndex);
-    console.log(`[ttimer] popover: time edited to ${raw} (${newMs}ms) for id=${id}`);
-    popover.remove();
-  });
 
   if (token.state !== "running" && token.state !== "archived") {
     const startBtn = allBtns.createEl("button", { cls: "ttimer-btn ttimer-btn--start", text: "▶" });

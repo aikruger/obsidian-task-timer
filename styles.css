@@ -1,3 +1,16 @@
+/* --- Task Timer scale root ------------------------------------------ */
+:root {
+  --ttimer-scale: 1;
+  --ttimer-base-font:   calc(0.82em  * var(--ttimer-scale));
+  --ttimer-label-font:  calc(0.80em  * var(--ttimer-scale));
+  --ttimer-small-font:  calc(0.74em  * var(--ttimer-scale));
+  --ttimer-btn-font:    calc(0.74em  * var(--ttimer-scale));
+  --ttimer-btn-pad-v:   calc(2px     * var(--ttimer-scale));
+  --ttimer-btn-pad-h:   calc(6px     * var(--ttimer-scale));
+  --ttimer-card-pad-v:  calc(5px     * var(--ttimer-scale));
+  --ttimer-card-pad-h:  calc(8px     * var(--ttimer-scale));
+}
+
 /* styles.css */
 
 .ttimer-inline-marker {
@@ -20,15 +33,15 @@
 
 .ttimer-card {
   border-left: 3px solid transparent;
-  padding: 5px 8px;
+  padding: var(--ttimer-card-pad-v) var(--ttimer-card-pad-h);
   margin-bottom: 3px;
   border-radius: 4px;
   background: var(--background-secondary);
-  font-size: 0.78em;
+  font-size: var(--ttimer-base-font);
 }
 
 .ttimer-card-label {
-  font-size: 0.78em;
+  font-size: var(--ttimer-label-font);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -40,13 +53,13 @@
 
 .ttimer-card-time,
 .ttimer-card-elapsed {
-  font-size: 0.78em;
+  font-size: var(--ttimer-small-font);
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
 }
 
 .ttimer-card-file {
-  font-size: 0.72em;
+  font-size: var(--ttimer-small-font);
   color: var(--text-muted);
   display: block;
 }
@@ -74,13 +87,13 @@
   position: fixed;
   z-index: 1000;
   min-width: 200px;
-  max-width: min(280px, calc(100vw - 16px));
+  max-width: min(300px, calc(100vw - 16px));
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
-  padding: 8px 10px;
+  padding: calc(8px * var(--ttimer-scale)) calc(10px * var(--ttimer-scale));
   box-shadow: 0 4px 14px rgba(0,0,0,0.18);
-  font-size: 0.78em;
+  font-size: var(--ttimer-base-font);
 }
 
 .ttimer-popover-header {
@@ -92,21 +105,21 @@
 }
 
 .ttimer-popover-title {
-  font-size: 0.78em;
+  font-size: var(--ttimer-label-font);
   font-weight: 600;
   color: var(--text-normal);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 180px;
+  max-width: 200px;
 }
 
 .ttimer-popover-time {
-  font-size: 1.1em;
+  font-size: calc(1.15em * var(--ttimer-scale));
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   text-align: center;
-  padding: 3px 0 5px 0;
+  padding: calc(3px * var(--ttimer-scale)) 0 calc(5px * var(--ttimer-scale)) 0;
   color: var(--text-normal);
 }
 
@@ -132,8 +145,8 @@
 .ttimer-popover-icon-btn:hover { background: var(--background-modifier-hover); }
 
 .ttimer-btn {
-  font-size: 0.72em;
-  padding: 2px 5px;
+  font-size: var(--ttimer-btn-font);
+  padding: var(--ttimer-btn-pad-v) var(--ttimer-btn-pad-h);
   border-radius: 3px;
   border: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
@@ -168,23 +181,30 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: 8px;
+  gap: 4px;
+  margin-bottom: 6px;
+  flex-wrap: nowrap;
 }
-.ttimer-view-title { margin: 0; }
+
+.ttimer-view-title {
+  flex: 1;
+  font-size: var(--ttimer-label-font);
+  font-weight: 600;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .ttimer-refresh-btn {
-  background: none;
+  font-size: var(--ttimer-btn-font);
+  padding: var(--ttimer-btn-pad-v) var(--ttimer-btn-pad-h);
+  border-radius: 3px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  background: var(--background-primary);
   cursor: pointer;
-  font-size: 1.1em;
-  padding: 2px 6px;
   color: var(--text-muted);
+  flex-shrink: 0;
 }
-.ttimer-refresh-btn:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.ttimer-refresh-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.ttimer-refresh-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.ttimer-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
