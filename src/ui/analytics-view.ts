@@ -7,6 +7,26 @@ import { exportAllToCSV } from "../reporting/reporting-service";
 
 export const ANALYTICS_VIEW_TYPE = "ttimer-analytics-view";
 
+/**
+ * Returns the epoch-ms timestamp of the most recent timing activity for a token.
+ * Uses the latest endedAt from closed segments, or startedAt if a segment is still open.
+ * Returns 0 if the token has no segments recorded.
+ */
+function getLastTimedAt(tokenId: string, store: import('../types/store').PluginStore): number {
+  const segs = store.segments[tokenId];
+  if (!segs || segs.length === 0) {
+    console.log(`[ttimer:analytics-view] getLastTimedAt: no segments for id=${tokenId}`);
+    return 0;
+  }
+  let latest = 0;
+  for (const seg of segs) {
+    const ts = seg.endedAt ?? seg.startedAt;
+    if (ts > latest) latest = ts;
+  }
+  console.log(`[ttimer:analytics-view] getLastTimedAt: id=${tokenId} latest=${latest} (${new Date(latest).toISOString()})`);
+  return latest;
+}
+
 function formatMs(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
   const h = Math.floor(totalSec / 3600);
@@ -17,6 +37,8 @@ function formatMs(ms: number): string {
 
 export class AnalyticsView extends ItemView {
   private intervalId: number | null = null;
+  private searchQuery: string = '';
+  private searchInputEl: HTMLInputElement | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -54,22 +76,51 @@ export class AnalyticsView extends ItemView {
       });
   }
 
-  render(): void {
-    const container = this.containerEl.children[1] as HTMLElement;
-    if (!container) return;
-    container.empty();
+  private deriveSidebarTasks(
+    allActive: import('../domain/hydration').LiveTokenIndex[string][]
+  ): import('../domain/hydration').LiveTokenIndex[string][] {
+    const query = this.searchQuery.trim().toLowerCase();
+    const sortMode = this.plugin.settings.sidebarSortMode ?? 'manual';
 
-    const allTokens = Object.values(this.plugin.tokenIndex);
-    const archived = allTokens.filter(t => t.token.state === "archived");
+    console.log('[ttimer:analytics-view] deriveSidebarTasks:', {
+      totalActive: allActive.length,
+      query,
+      sortMode,
+    });
 
-    // Sort active tokens: running first, then by persisted order
-    const active = allTokens
-      .filter(t => t.token.state !== "archived")
-      .sort((a, b) => {
-        const aRunning = a.token.state === "running" ? 0 : 1;
-        const bRunning = b.token.state === "running" ? 0 : 1;
+    // 1. Filter
+    let filtered = allActive;
+    if (query) {
+      filtered = allActive.filter(entry => {
+        const inTaskText = entry.taskText.toLowerCase().includes(query);
+        const inFilePath = entry.filePath.toLowerCase().includes(query);
+        return inTaskText || inFilePath;
+      });
+      console.log(`[ttimer:analytics-view] deriveSidebarTasks: filtered ${allActive.length} → ${filtered.length} for query="${query}"`);
+    }
+
+    // 2. Sort
+    if (sortMode === 'alphabetical') {
+      filtered = [...filtered].sort((a, b) =>
+        a.taskText.localeCompare(b.taskText, undefined, { sensitivity: 'base' })
+      );
+      console.log('[ttimer:analytics-view] deriveSidebarTasks: sorted alphabetically');
+    } else if (sortMode === 'recent') {
+      filtered = [...filtered].sort((a, b) => {
+        const aTs = getLastTimedAt(a.token.id, this.plugin.store);
+        const bTs = getLastTimedAt(b.token.id, this.plugin.store);
+        console.log(`[ttimer:analytics-view] deriveSidebarTasks sort: id=${a.token.id} ts=${aTs} vs id=${b.token.id} ts=${bTs}`);
+        if (bTs !== aTs) return bTs - aTs; // most recent first
+        return a.taskText.localeCompare(b.taskText); // tie-break alphabetically
+      });
+      console.log('[ttimer:analytics-view] deriveSidebarTasks: sorted by recent');
+    } else {
+      // Manual: running first, then persisted order
+      const order = this.plugin.store.order ?? [];
+      filtered = [...filtered].sort((a, b) => {
+        const aRunning = a.token.state === 'running' ? 0 : 1;
+        const bRunning = b.token.state === 'running' ? 0 : 1;
         if (aRunning !== bRunning) return aRunning - bRunning;
-        const order = this.plugin.store.order ?? [];
         const ai = order.indexOf(a.token.id);
         const bi = order.indexOf(b.token.id);
         if (ai === -1 && bi === -1) return 0;
@@ -77,87 +128,190 @@ export class AnalyticsView extends ItemView {
         if (bi === -1) return -1;
         return ai - bi;
       });
+      console.log('[ttimer:analytics-view] deriveSidebarTasks: sorted manual');
+    }
 
-    console.log("[ttimer:analytics-view] render", {
-      activeCount: active.length,
+    return filtered;
+  }
+
+  render(): void {
+    const container = this.containerEl.children[1] as HTMLElement;
+    if (!container) return;
+    container.empty();
+
+    const allTokens = Object.values(this.plugin.tokenIndex);
+    const archived = allTokens.filter(t => t.token.state === 'archived');
+    const allActive = allTokens.filter(t => t.token.state !== 'archived');
+
+    console.log('[ttimer:analytics-view] render', {
+      activeCount: allActive.length,
       archivedCount: archived.length,
+      searchQuery: this.searchQuery,
+      sortMode: this.plugin.settings.sidebarSortMode,
     });
 
-    // Header row
-    const headerRow = container.createDiv({ cls: "ttimer-view-header" });
-    headerRow.createEl("h3", { text: "Task Timers", cls: "ttimer-view-title" });
-    const refreshBtn = headerRow.createEl("button", { cls: "ttimer-refresh-btn", title: "Refresh" });
-    refreshBtn.innerHTML = "↺";
-    refreshBtn.addEventListener("click", async () => {
-      console.log("[ttimer:analytics-view] refresh triggered");
+    // ── Header row ───────────────────────────────────────────────────
+    const headerRow = container.createDiv({ cls: 'ttimer-view-header' });
+    headerRow.createEl('h3', { text: 'Task Timers', cls: 'ttimer-view-title' });
+
+    // Sort mode badge next to title
+    const sortMode = this.plugin.settings.sidebarSortMode ?? 'manual';
+    const sortLabel = sortMode === 'alphabetical' ? 'A–Z' : sortMode === 'recent' ? '🕐' : '';
+    if (sortLabel) {
+      headerRow.createEl('span', {
+        text: sortLabel,
+        cls: 'ttimer-sort-badge',
+        attr: { title: `Sort: ${sortMode}` },
+      });
+    }
+
+    const refreshBtn = headerRow.createEl('button', { cls: 'ttimer-refresh-btn', title: 'Refresh' });
+    refreshBtn.innerHTML = '↺';
+    refreshBtn.addEventListener('click', async () => {
+      console.log('[ttimer:analytics-view] refresh triggered');
       refreshBtn.disabled = true;
-      refreshBtn.innerHTML = "…";
+      refreshBtn.innerHTML = '…';
       try {
-        this.plugin.tokenIndex = await import("../domain/hydration").then(m =>
+        this.plugin.tokenIndex = await import('../domain/hydration').then(m =>
           m.hydrateTokenIndex(this.plugin.app, this.plugin.store)
         );
         await this.plugin.saveStore();
         this.render();
       } catch (e) {
-        console.error("[ttimer:analytics-view] refresh failed", e);
+        console.error('[ttimer:analytics-view] refresh failed', e);
       }
     });
 
-    const exportBtn = headerRow.createEl("button", {
-      cls: "ttimer-refresh-btn",
-      title: "Export all timers to CSV"
+    const exportBtn = headerRow.createEl('button', {
+      cls: 'ttimer-refresh-btn',
+      title: 'Export all timers to CSV',
     });
-    exportBtn.innerHTML = "⬇";
-    exportBtn.addEventListener("click", async () => {
-      console.log("[ttimer:analytics-view] export CSV triggered");
+    exportBtn.innerHTML = '⬇';
+    exportBtn.addEventListener('click', async () => {
+      console.log('[ttimer:analytics-view] export CSV triggered');
       exportBtn.disabled = true;
-      exportBtn.innerHTML = "…";
+      exportBtn.innerHTML = '…';
       try {
         const csv = exportAllToCSV(this.plugin.store);
         const folder = this.plugin.settings.exportFolder;
-        const fileName = `${folder ? folder + "/" : ""}ttimer-export-${Date.now()}.csv`;
+        const fileName = `${folder ? folder + '/' : ''}ttimer-export-${Date.now()}.csv`;
         await this.plugin.app.vault.create(fileName, csv);
-        const { Notice } = await import("obsidian");
+        const { Notice } = await import('obsidian');
         new Notice(`Exported: ${fileName}`);
         console.log(`[ttimer:analytics-view] export complete: ${fileName}`);
       } catch (e) {
-        console.error("[ttimer:analytics-view] export failed", e);
-        const { Notice } = await import("obsidian");
-        new Notice("Export failed — see console.");
+        console.error('[ttimer:analytics-view] export failed', e);
+        const { Notice } = await import('obsidian');
+        new Notice('Export failed — see console.');
       } finally {
         exportBtn.disabled = false;
-        exportBtn.innerHTML = "⬇";
+        exportBtn.innerHTML = '⬇';
       }
     });
 
-    if (active.length === 0) {
-      container.createEl("p", { text: "No active timers.", cls: "ttimer-empty" });
+    // ── Search bar ───────────────────────────────────────────────────
+    const searchRow = container.createDiv({ cls: 'ttimer-search-row' });
+    const searchInput = searchRow.createEl('input', {
+      cls: 'ttimer-search-input',
+      attr: {
+        type: 'text',
+        placeholder: 'Search tasks…',
+        'aria-label': 'Search tasks',
+        value: this.searchQuery,
+      },
+    }) as HTMLInputElement;
+    this.searchInputEl = searchInput;
+
+    // Restore cursor position after re-render is not possible, but focus is restored
+    // by focusing on input if there was already a query present
+    if (this.searchQuery) {
+      // Defer focus so Obsidian's render cycle completes first
+      window.setTimeout(() => {
+        searchInput.focus();
+        searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+      }, 0);
     }
 
-    for (const entry of active) {
+    searchInput.addEventListener('input', () => {
+      this.searchQuery = searchInput.value;
+      console.log('[ttimer:analytics-view] search query changed:', this.searchQuery);
+      this.render();
+    });
+
+    searchInput.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        this.searchQuery = '';
+        console.log('[ttimer:analytics-view] search cleared via Escape');
+        this.render();
+      }
+    });
+
+    // Clear button shown when query is non-empty
+    if (this.searchQuery) {
+      const clearBtn = searchRow.createEl('button', {
+        cls: 'ttimer-search-clear',
+        attr: { title: 'Clear search', 'aria-label': 'Clear search' },
+        text: '✕',
+      });
+      clearBtn.addEventListener('click', () => {
+        this.searchQuery = '';
+        console.log('[ttimer:analytics-view] search cleared via button');
+        this.render();
+      });
+    }
+
+    // ── Derive visible tasks ─────────────────────────────────────────
+    const visible = this.deriveSidebarTasks(allActive);
+
+    console.log('[ttimer:analytics-view] visible task count after derive:', visible.length);
+
+    if (allActive.length === 0) {
+      container.createEl('p', { text: 'No active timers.', cls: 'ttimer-empty' });
+    } else if (visible.length === 0 && this.searchQuery) {
+      container.createEl('p', {
+        text: `No tasks match "${this.searchQuery}".`,
+        cls: 'ttimer-empty',
+      });
+    }
+
+    for (const entry of visible) {
       this.renderTimerCard(entry, container);
     }
 
-    this.attachDragHandlers(container, active);
-    console.log("[ttimer:analytics-view] drag handlers attached");
+    // Drag-and-drop only works in manual sort mode
+    if (sortMode === 'manual') {
+      this.attachDragHandlers(container, allActive);
+      console.log('[ttimer:analytics-view] drag handlers attached (manual sort mode)');
+    } else {
+      console.log(`[ttimer:analytics-view] drag disabled — sort mode is "${sortMode}"`);
+    }
 
-    // Archived section
-    const archSection = container.createEl("details");
-    archSection.createEl("summary", { text: `Archived (${archived.length})` });
+    // ── Archived section ─────────────────────────────────────────────
+    const archSection = container.createEl('details');
+    archSection.createEl('summary', { text: `Archived (${archived.length})` });
     for (const entry of archived) {
-      const card = archSection.createEl("div", { cls: "ttimer-card ttimer-card--archived" });
-      card.createEl("div", { text: entry.taskText, cls: "ttimer-card-label" });
-      card.createEl("div", {
+      const card = archSection.createEl('div', { cls: 'ttimer-card ttimer-card--archived' });
+      card.createEl('div', { text: entry.taskText, cls: 'ttimer-card-label' });
+      card.createEl('div', {
         text: formatMs(computeElapsedMs(entry.token, this.plugin.store, Date.now())),
-        cls: "ttimer-card-elapsed",
+        cls: 'ttimer-card-elapsed',
       });
-      const archBtnRow = card.createDiv({ cls: "ttimer-card-buttons" });
-      const unarchBtn = archBtnRow.createEl("button", { cls: "ttimer-btn ttimer-btn--unarchive", text: "📂" });
-      unarchBtn.title = "Unarchive";
-      unarchBtn.addEventListener("click", async () => {
+      const archBtnRow = card.createDiv({ cls: 'ttimer-card-buttons' });
+      const unarchBtn = archBtnRow.createEl('button', {
+        cls: 'ttimer-btn ttimer-btn--unarchive',
+        text: '📂',
+      });
+      unarchBtn.title = 'Unarchive';
+      unarchBtn.addEventListener('click', async () => {
         console.log(`[ttimer:analytics-view] unarchive clicked id=${entry.token.id}`);
-        const { unarchiveTimer } = await import("../domain/transitions");
-        await unarchiveTimer(entry.token.id, this.plugin.app, this.plugin.store, this.plugin.saveStore.bind(this.plugin), this.plugin.tokenIndex);
+        const { unarchiveTimer } = await import('../domain/transitions');
+        await unarchiveTimer(
+          entry.token.id,
+          this.plugin.app,
+          this.plugin.store,
+          this.plugin.saveStore.bind(this.plugin),
+          this.plugin.tokenIndex
+        );
         this.render();
       });
     }

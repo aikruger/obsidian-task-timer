@@ -208,3 +208,57 @@
 }
 .ttimer-refresh-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
 .ttimer-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Search row ─────────────────────────────────────────────── */
+.ttimer-search-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 4px;
+}
+
+.ttimer-search-input {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: calc(0.82em * var(--ttimer-scale, 1));
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  outline: none;
+}
+
+.ttimer-search-input:focus {
+  border-color: var(--interactive-accent);
+}
+
+.ttimer-search-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  padding: 2px 4px;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.ttimer-search-clear:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* ── Sort badge ──────────────────────────────────────────────── */
+.ttimer-sort-badge {
+  font-size: calc(0.72em * var(--ttimer-scale, 1));
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-left: 6px;
+  vertical-align: middle;
+  cursor: default;
+}

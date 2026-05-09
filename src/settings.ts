@@ -5,12 +5,14 @@ export interface TaskTimerSettings {
   archiveOnComplete: boolean;
   exportFolder: string;
   uiScale: number; // multiplier: 1.0 = default, range 0.75–2.0
+  sidebarSortMode: 'manual' | 'alphabetical' | 'recent';
 }
 
 export const DEFAULT_SETTINGS: TaskTimerSettings = {
   archiveOnComplete: true,
   exportFolder: "",
   uiScale: 1.0,
+  sidebarSortMode: 'manual',
 };
 
 export class TaskTimerSettingTab extends PluginSettingTab {
@@ -31,6 +33,26 @@ export class TaskTimerSettingTab extends PluginSettingTab {
         .onChange(async v => {
           this.plugin.settings.archiveOnComplete = v;
           await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName('Sidebar sort order')
+      .setDesc('How tasks are ordered in the sidebar. "Manual" preserves drag order. "Alphabetical" sorts A–Z by task text. "Recent" shows most recently timed tasks first.')
+      .addDropdown(dd => dd
+        .addOption('manual', 'Manual (drag order)')
+        .addOption('alphabetical', 'Alphabetical')
+        .addOption('recent', 'Most recently timed')
+        .setValue(this.plugin.settings.sidebarSortMode)
+        .onChange(async (v: string) => {
+          console.log(`[ttimer:settings] sidebarSortMode changed to ${v}`);
+          this.plugin.settings.sidebarSortMode = v as 'manual' | 'alphabetical' | 'recent';
+          await this.plugin.saveSettings();
+          // Refresh any open sidebar immediately
+          const { ANALYTICS_VIEW_TYPE } = await import('./ui/analytics-view');
+          this.plugin.app.workspace.getLeavesOfType(ANALYTICS_VIEW_TYPE).forEach(leaf => {
+            const view = leaf.view as import('./ui/analytics-view').AnalyticsView;
+            if (typeof view.render === 'function') view.render();
+          });
         }));
 
     new Setting(containerEl)
