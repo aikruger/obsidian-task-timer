@@ -458,3 +458,74 @@ export async function clearAllTimers(
   await saveStore();
   console.log(`[ttimer] clearAllTimers: complete — store and index cleared`);
 }
+
+export async function resetTimer(
+  id: string,
+  app: App,
+  store: PluginStore,
+  saveStore: () => Promise<void>,
+  tokenIndex: LiveTokenIndex
+): Promise<void> {
+  console.log(`[ttimer] resetTimer: id=${id}`);
+
+  const location = await resolveTokenLocation(id, app, store);
+  if (!location) {
+    console.error(`[ttimer] resetTimer: cannot resolve token location for id=${id}`);
+    return;
+  }
+
+  const { file, lineNo, line } = location;
+  const token = parseTokenFromLine(line);
+  if (!token) {
+    console.error(`[ttimer] resetTimer: no token found on line for id=${id}`);
+    return;
+  }
+
+  if (token.state === "archived") {
+    console.warn(`[ttimer] resetTimer: cannot reset an archived timer id=${id}`);
+    return;
+  }
+
+  const prevBaseMs = token.baseMs;
+  const prevSegCount = store.segments[id]?.length ?? 0;
+  console.log(`[ttimer] resetTimer: clearing ${prevSegCount} segments, baseMs was ${prevBaseMs}`);
+
+  // Wipe all segments for this timer
+  store.segments[id] = [];
+
+  // Clear any countdown overtime
+  if (store.meta[id]) {
+    store.meta[id] = {
+      ...store.meta[id]!,
+      overtimeStartedAt: undefined,
+    };
+  }
+
+  // Write reset token to file: preserve current state (running/paused/stopped), zero out baseMs
+  // If running, keep it running from zero so the live segment will still accumulate
+  const newToken = buildToken(id, token.state, 0);
+  const newLine = line.replace(token.raw, newToken);
+  await writeLineToFile(file, lineNo, newLine, app);
+  console.log(`[ttimer] resetTimer: wrote reset token to file id=${id} state=${token.state} newToken="${newToken}"`);
+
+  // Update in-memory index
+  if (tokenIndex[id]) {
+    tokenIndex[id].token.baseMs = 0;
+  }
+
+  // If the timer is currently running, open a fresh segment so time resumes from zero
+  if (token.state === "running") {
+    const freshSeg: SegmentEntry = {
+      id,
+      seq: 0,
+      startedAt: Date.now(),
+      filePath: file.path,
+      taskTextSnapshot: store.meta[id]?.taskTextSnapshot ?? extractTaskText(line),
+    };
+    store.segments[id] = [freshSeg];
+    console.log(`[ttimer] resetTimer: re-opened fresh running segment seq=0 startedAt=${freshSeg.startedAt}`);
+  }
+
+  await saveStore();
+  console.log(`[ttimer] resetTimer: complete id=${id}`);
+}

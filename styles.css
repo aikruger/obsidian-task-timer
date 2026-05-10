@@ -167,6 +167,38 @@
 .ttimer-btn--archive { border-color: var(--text-muted); }
 .ttimer-btn--delete { border-color: #7a1e1e; color: #7a1e1e; }
 
+/* ── Reset button ───────────────────────────────────────── */
+.ttimer-btn--reset {
+  color: var(--color-orange, #da7101);
+  border-color: color-mix(in oklch, var(--color-orange, #da7101) 40%, transparent);
+}
+.ttimer-btn--reset:hover {
+  background: color-mix(in oklch, var(--color-orange, #da7101) 12%, var(--background-primary));
+}
+
+/* ── Total time — sidebar pill ──────────────────────────── */
+.ttimer-card-total {
+  display: block;
+  font-size: var(--ttimer-btn-font, 0.72em);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  margin-top: 1px;
+  margin-bottom: 2px;
+}
+
+/* ── Total time — popover ───────────────────────────────── */
+.ttimer-popover-total {
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.ttimer-popover-total-label {
+  font-size: 0.72em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  cursor: default;
+}
+
 .ttimer-popover-countdown {
   font-size: 0.75em;
   margin-bottom: 4px;

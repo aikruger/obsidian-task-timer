@@ -63,17 +63,30 @@ export class AnalyticsView extends ItemView {
   }
 
   refreshLiveTimes(): void {
-      const container = this.containerEl.children[1] as HTMLElement;
-      if (!container) return;
-      const timers = container.querySelectorAll(".ttimer-card-time");
-      timers.forEach(t => {
-          const id = (t as HTMLElement).dataset.id;
-          if (!id) return;
-          const entry = this.plugin.tokenIndex[id];
-          if (entry && entry.token.state === "running") {
-              t.textContent = formatMs(computeElapsedMs(entry.token, this.plugin.store, Date.now()));
-          }
-      });
+    const container = this.containerEl.children[1] as HTMLElement;
+    if (!container) return;
+
+    // Refresh running live elapsed
+    const timers = container.querySelectorAll(".ttimer-card-time");
+    timers.forEach(t => {
+      const id = (t as HTMLElement).dataset.id;
+      if (!id) return;
+      const entry = this.plugin.tokenIndex[id];
+      if (entry && entry.token.state === "running") {
+        t.textContent = formatMs(computeElapsedMs(entry.token, this.plugin.store, Date.now()));
+      }
+    });
+
+    // Refresh total time labels for running timers
+    const totals = container.querySelectorAll<HTMLElement>(".ttimer-card-total");
+    totals.forEach(el => {
+      const id = el.dataset.id;
+      if (!id) return;
+      const entry = this.plugin.tokenIndex[id];
+      if (entry && entry.token.state === "running") {
+        el.textContent = `Total: ${formatMs(computeElapsedMs(entry.token, this.plugin.store, Date.now()))}`;
+      }
+    });
   }
 
   private deriveSidebarTasks(
@@ -443,6 +456,16 @@ export class AnalyticsView extends ItemView {
     timerEl.dataset.id = token.id;
     timerEl.textContent = formatMs(elapsed);
 
+    // Total time display
+    const totalMs = computeElapsedMs(token, this.plugin.store, Date.now());
+    const totalEl = card.createEl("span", {
+      cls: "ttimer-card-total",
+      text: `Total: ${formatMs(totalMs)}`,
+    });
+    totalEl.dataset.id = token.id;
+    totalEl.dataset.role = "total";
+    console.log(`[ttimer] renderTimerCard: totalMs=${totalMs} id=${token.id}`);
+
     if (token.state === "stopped" || token.state === "paused") {
       timerEl.title = "Click to edit time";
       timerEl.style.cursor = "text";
@@ -489,6 +512,36 @@ export class AnalyticsView extends ItemView {
 
     // Buttons
     const btnRow = card.createDiv({ cls: "ttimer-card-buttons" });
+
+    // Reset button — only for non-archived timers with accumulated time
+    if (token.state !== "archived") {
+      const currentTotal = computeElapsedMs(token, this.plugin.store, Date.now());
+      if (currentTotal > 0) {
+        const resetBtn = btnRow.createEl("button", {
+          cls: "ttimer-btn ttimer-btn--reset",
+          text: "↺",
+        });
+        resetBtn.title = "Reset timer to zero";
+        resetBtn.addEventListener("click", async () => {
+          console.log(`[ttimer] timerCard: reset clicked id=${token.id}`);
+          const confirmed = confirm(`Reset all time on "${taskText}" to zero? This cannot be undone.`);
+          if (!confirmed) {
+            console.log(`[ttimer] timerCard: reset cancelled id=${token.id}`);
+            return;
+          }
+          const { resetTimer } = await import("../domain/transitions");
+          await resetTimer(
+            token.id,
+            this.plugin.app,
+            this.plugin.store,
+            this.plugin.saveStore.bind(this.plugin),
+            this.plugin.tokenIndex
+          );
+          console.log(`[ttimer] timerCard: reset complete id=${token.id}`);
+          this.render();
+        });
+      }
+    }
 
     if (token.state !== "running") {
       const startBtn = btnRow.createEl("button", { cls: "ttimer-btn ttimer-btn--start", text: "▶" });

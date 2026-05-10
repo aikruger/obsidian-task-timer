@@ -2,7 +2,7 @@ import { App } from "obsidian";
 import { PluginStore } from "../types/store";
 import { LiveTokenIndex } from "../domain/hydration";
 import { computeElapsedMs, getCountdownStatus } from "../domain/elapsed";
-import { startTimer, pauseTimer, stopTimer, archiveTimer, deleteTimer } from "../domain/transitions";
+import { startTimer, pauseTimer, stopTimer, archiveTimer, deleteTimer, resetTimer } from "../domain/transitions";
 import TaskTimerPlugin from "../main";
 
 function formatMs(ms: number): string {
@@ -91,6 +91,14 @@ export function showTimerPopover(
       if (!fresh) { cleanup(); return; }
       const timeEl = popover.querySelector<HTMLElement>(".ttimer-popover-time");
       if (timeEl) timeEl.textContent = formatMs(computeElapsedMs(fresh.token, store, Date.now()));
+
+      // Update total time label
+      const totalLabel = popover.querySelector<HTMLElement>(".ttimer-popover-total-label");
+      if (totalLabel) {
+        const liveTotal = computeElapsedMs(fresh.token, store, Date.now());
+        totalLabel.textContent = `Total: ${formatMs(liveTotal)}`;
+        console.log(`[ttimer] popover tick: updated total label id=${id} liveTotal=${liveTotal}`);
+      }
 
       // Update countdown label
       const cdLabel = popover.querySelector<HTMLElement>(".ttimer-countdown-label");
@@ -199,6 +207,22 @@ function buildPopoverContent(
     });
   }
 
+  // Total time: sum of all closed segments plus any currently open segment
+  const totalElapsed = entry ? computeElapsedMs(entry.token, store, Date.now()) : token.baseMs;
+  const allSegs = store.segments[id] ?? [];
+  const closedMs = allSegs
+    .filter(s => s.endedAt !== undefined)
+    .reduce((acc, s) => acc + (s.endedAt! - s.startedAt), 0);
+  const sessionCount = allSegs.length;
+
+  const totalRow = popover.createDiv({ cls: "ttimer-popover-total" });
+  totalRow.createEl("span", {
+    cls: "ttimer-popover-total-label",
+    text: `Total: ${formatMs(totalElapsed)}`,
+    attr: { title: `${sessionCount} session${sessionCount !== 1 ? "s" : ""}` },
+  });
+  console.log(`[ttimer] buildPopoverContent: totalElapsed=${totalElapsed} sessions=${sessionCount} id=${id}`);
+
   // Countdown display (if enabled)
   const meta = store.meta[id];
   const cdStatus = getCountdownStatus(id, store, Date.now());
@@ -263,6 +287,26 @@ function buildPopoverContent(
       await stopTimer(id, app, store, saveStore, tokenIndex);
       popover.remove();
     });
+  }
+
+  // Reset button — visible for any non-archived timer that has time accumulated
+  if (token.state !== "archived") {
+    const currentElapsed = entry ? computeElapsedMs(entry.token, store, Date.now()) : token.baseMs;
+    if (currentElapsed > 0) {
+      const resetBtn = allBtns.createEl("button", { cls: "ttimer-btn ttimer-btn--reset", text: "↺" });
+      resetBtn.title = "Reset timer to zero";
+      resetBtn.addEventListener("click", async () => {
+        console.log(`[ttimer] popover: reset clicked id=${id}`);
+        const confirmed = confirm(`Reset all time on "${taskText}" to zero? This cannot be undone.`);
+        if (!confirmed) {
+          console.log(`[ttimer] popover: reset cancelled by user id=${id}`);
+          return;
+        }
+        await resetTimer(id, app, store, saveStore, tokenIndex);
+        console.log(`[ttimer] popover: reset complete id=${id}`);
+        popover.remove();
+      });
+    }
   }
 
   if (token.state !== "archived") {
