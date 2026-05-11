@@ -81,7 +81,7 @@ export default class TaskTimerPlugin extends Plugin {
 // --- Attach timer to current task ---
 this.addCommand({
   id: "attach-timer-to-task",
-  name: "Attach timer to current task",
+  name: "Attach timer to current line",
   editorCallback: async (editor, ctx) => {
     console.log("[ttimer:cmd] attach-timer-to-task triggered");
     const file = ctx.file;
@@ -108,7 +108,7 @@ this.addCommand({
 // --- Start timer on current task ---
 this.addCommand({
   id: "start-timer-on-task",
-  name: "Start timer on current task",
+  name: "Start timer on current line",
   editorCallback: async (editor, ctx) => {
     console.log("[ttimer:cmd] start-timer-on-task triggered");
     const file = ctx.file;

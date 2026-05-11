@@ -6,8 +6,30 @@ import { writeLineToFile } from "../utils/file-write";
 import { LiveTokenIndex } from "./hydration";
 
 export function extractTaskText(line: string): string {
-  // Simplistic extraction, removing markdown tasks and tokens
-  return line.replace(/^[\s>]*[-*]\s+\[( |x|X)\]\s*/, "").replace(/⏱\(ttimer:[^\)]+\)/g, "").trim();
+  console.log(`[ttimer] extractTaskText: raw="${line}"`);
+
+  let text = line;
+
+  // Remove task-list checkbox prefix (- [ ], * [ ], - [x], etc.) if present
+  text = text.replace(/^[\s>]*[-*+]\s+\[[ xX\-\/]\]\s*/, "");
+
+  // Remove bare bullet/numbered-list prefix if no checkbox (- text, * text, 1. text)
+  text = text.replace(/^[\s>]*(?:\d+[.)]\s+|[-*+]\s+)/, "");
+
+  // Remove blockquote prefix
+  text = text.replace(/^[\s>]+/, "");
+
+  // Remove heading prefix (# ## ### etc.)
+  text = text.replace(/^#+\s+/, "");
+
+  // Strip the timer token itself
+  text = text.replace(/⏱\(ttimer:[^\)]+\)/g, "");
+
+  // Strip leading/trailing whitespace
+  text = text.trim();
+
+  console.log(`[ttimer] extractTaskText: result="${text}"`);
+  return text || line.trim(); // Never return empty — fall back to raw trimmed line
 }
 
 export async function startTimer(

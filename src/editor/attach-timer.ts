@@ -2,7 +2,6 @@ import { Editor, Notice, TFile } from "obsidian";
 import { PluginStore } from "../types/store";
 import { buildToken, parseTokenFromLine } from "../types/token";
 import { generateTokenId } from "../utils/id";
-import { isTaskLine } from "../domain/resolve-location";
 import { extractTaskText } from "../domain/transitions";
 import { LiveTokenIndex } from "../domain/hydration";
 
@@ -23,8 +22,8 @@ export function insertTokenIntoLine(line: string, token: string): string {
     console.log(`[ttimer] insertTokenIntoLine: inserted before Tasks date fields at pos=${pos}`);
     return result;
   }
-  // Default: append
-  console.log(`[ttimer] insertTokenIntoLine: appending to end of line`);
+  // Default: append to end (works for any line type)
+  console.log(`[ttimer] insertTokenIntoLine: appending to end of line (line type: generic)`);
   return line + " " + token;
 }
 
@@ -40,10 +39,9 @@ export async function attachTimerToCurrentTask(
 
   console.log(`[ttimer] attachTimerToCurrentTask: file=${file.path} lineNo=${cursor.line} line="${line}"`);
 
-  // Guard: not a task line
-  if (!isTaskLine(line)) {
-    console.warn(`[ttimer] attachTimerToCurrentTask: line is not a task line, aborting`);
-    new Notice("Place cursor on a markdown task line first.");
+  if (line.trim() === "") {
+    console.warn(`[ttimer] attachTimerToCurrentTask: line is empty, aborting`);
+    new Notice("Place cursor on a line with text first.");
     return null;
   }
 

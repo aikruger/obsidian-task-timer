@@ -3,7 +3,6 @@ import TaskTimerPlugin from "../main";
 import { parseTokenFromLine } from "../types/token";
 import { attachTimerToCurrentTask } from "../editor/attach-timer";
 import { startTimer, pauseTimer, stopTimer, archiveTimer } from "../domain/transitions";
-import { isTaskLine } from "../domain/resolve-location";
 
 export function registerContextMenu(plugin: TaskTimerPlugin): void {
   plugin.registerEvent(
@@ -13,8 +12,8 @@ export function registerContextMenu(plugin: TaskTimerPlugin): void {
         const cursor = editor.getCursor();
         const line = editor.getLine(cursor.line);
 
-        if (!isTaskLine(line)) {
-          console.log(`[ttimer:context-menu] not a task line, skipping`);
+        if (line.trim() === "") {
+          console.log(`[ttimer:context-menu] empty line, skipping`);
           return;
         }
 
