@@ -37,6 +37,7 @@ export function getCountdownStatus(
   nowMs: number
 ): CountdownStatus | null {
   const meta = store.meta[id];
+  console.log(`[ttimer] getCountdownStatus: id=${id} meta=${meta ? "found" : "missing"} countdownTargetMs=${meta?.countdownTargetMs ?? "none"}`);
   if (!meta || meta.countdownTargetMs == null) return null;
 
   const { countdownTargetMs } = meta;
