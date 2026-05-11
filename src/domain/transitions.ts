@@ -351,17 +351,25 @@ export async function setCountdown(
   saveStore: () => Promise<void>,
 ): Promise<void> {
   console.log(`[ttimer] setCountdown: id=${id} targetMs=${targetMs}`);
+
   if (!store.meta[id]) {
-    console.error(`[ttimer] setCountdown: no meta entry for id=${id}`);
+    console.error(`[ttimer] setCountdown: no meta entry for id=${id} — cannot set countdown`);
     return;
   }
+
+  if (targetMs <= 0) {
+    console.warn(`[ttimer] setCountdown: targetMs=${targetMs} is not positive, aborting`);
+    return;
+  }
+
   store.meta[id] = {
     ...store.meta[id]!,
     countdownTargetMs: targetMs,
-    overtimeStartedAt: undefined,
+    overtimeStartedAt: undefined,  // reset overtime whenever target is re-set
   };
+
   await saveStore();
-  console.log(`[ttimer] setCountdown: saved targetMs=${targetMs} for id=${id}`);
+  console.log(`[ttimer] setCountdown: saved countdownTargetMs=${targetMs} for id=${id}`);
 }
 
 export async function editElapsed(

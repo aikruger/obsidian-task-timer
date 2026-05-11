@@ -7,15 +7,18 @@ export interface SegmentEntry {
   taskTextSnapshot: string;// captured at segment-open time
 }
 
+// Fields countdownTargetMs and overtimeStartedAt are optional and only
+// present after the user sets a countdown via setCountdown() in transitions.ts
+// console.log sanity check: store.meta[id].countdownTargetMs should be a number in ms
 export interface TokenMeta {
   id: string;
   filePath: string;
-  line: number;            // best-known line — advisory only, not authoritative
+  line: number;
   taskTextSnapshot: string;
   firstSeenAt: number;
   archivedAt?: number;
-  countdownTargetMs?: number;  // if set, timer counts down from this value
-  overtimeStartedAt?: number;  // epoch ms when countdown reached zero
+  countdownTargetMs?: number;    // if set, enables countdown display
+  overtimeStartedAt?: number;    // epoch ms when countdown first hit zero
 }
 
 export interface PluginStore {
