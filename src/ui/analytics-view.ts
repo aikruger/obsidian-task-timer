@@ -1,6 +1,6 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import TaskTimerPlugin from "../main";
-import { computeElapsedMs } from "../domain/elapsed";
+import { computeElapsedMs, getCountdownStatus } from "../domain/elapsed";
 import { LiveTokenIndex } from "../domain/hydration";
 import { startTimer, pauseTimer, stopTimer, archiveTimer } from "../domain/transitions";
 import { exportAllToCSV } from "../reporting/reporting-service";
@@ -86,6 +86,27 @@ export class AnalyticsView extends ItemView {
       if (entry && entry.token.state === "running") {
         el.textContent = `Total: ${formatMs(computeElapsedMs(entry.token, this.plugin.store, Date.now()))}`;
       }
+    });
+
+    // Refresh countdown labels for running timers
+    const cdRows = container.querySelectorAll<HTMLElement>(".ttimer-card-countdown");
+    cdRows.forEach(row => {
+      const id = row.dataset.id;
+      if (!id) return;
+      const entry = this.plugin.tokenIndex[id];
+      if (!entry || entry.token.state !== "running") return;
+      const cdStatus = getCountdownStatus(id, this.plugin.store, Date.now());
+      if (!cdStatus) return;
+      const lbl = row.querySelector<HTMLElement>(".ttimer-card-countdown-label");
+      if (!lbl) return;
+      if (cdStatus.isOvertime) {
+        lbl.textContent = `⚠ +${formatMs(computeElapsedMs(entry.token, this.plugin.store, Date.now()) - cdStatus.targetMs < 0 ? 0 : computeElapsedMs(entry.token, this.plugin.store, Date.now()) - cdStatus.targetMs)}`;
+        lbl.classList.add("ttimer-countdown--overtime");
+      } else {
+        lbl.textContent = `⏳ ${formatMs(cdStatus.remainingMs)}`;
+        lbl.classList.remove("ttimer-countdown--overtime");
+      }
+      console.log(`[ttimer] analytics-view refreshLiveTimes: countdown tick id=${id} remaining=${cdStatus.remainingMs} isOvertime=${cdStatus.isOvertime}`);
     });
   }
 
@@ -456,6 +477,22 @@ export class AnalyticsView extends ItemView {
     timerEl.dataset.id = token.id;
     timerEl.textContent = formatMs(elapsed);
 
+    // --- Countdown display ---
+    const cdStatus = getCountdownStatus(token.id, this.plugin.store, Date.now());
+    if (cdStatus) {
+      const cdRow = card.createDiv({ cls: "ttimer-card-countdown", attr: { "data-id": token.id } });
+      const labelCls = `ttimer-card-countdown-label${cdStatus.isOvertime ? " ttimer-countdown--overtime" : ""}`;
+      const labelText = cdStatus.isOvertime
+        ? `⚠ +${formatMs(cdStatus.overtimeMs)}`
+        : `⏳ ${formatMs(cdStatus.remainingMs)}`;
+      cdRow.createEl("span", { cls: labelCls, text: labelText });
+      console.log(`[ttimer] analytics-view renderTimerCard: countdown row id=${token.id} isOvertime=${cdStatus.isOvertime} remaining=${cdStatus.remainingMs}`);
+    } else {
+      // No countdown — render a placeholder so the set-countdown button is still visible
+      const cdRow = card.createDiv({ cls: "ttimer-card-countdown ttimer-card-countdown--empty", attr: { "data-id": token.id } });
+      cdRow.createEl("span", { cls: "ttimer-card-countdown-none", text: "" });
+    }
+
     // Total time display
     const totalMs = computeElapsedMs(token, this.plugin.store, Date.now());
     const totalEl = card.createEl("span", {
@@ -567,6 +604,48 @@ export class AnalyticsView extends ItemView {
         this.render();
       });
     }
+    // Set countdown button in sidebar
+    const cdTarget = this.plugin.store.meta[token.id]?.countdownTargetMs;
+    const cdCardBtn = btnRow.createEl("button", {
+      cls: "ttimer-btn ttimer-btn--countdown",
+      text: cdTarget ? `⏳ ${Math.round(cdTarget / 60000)}m` : "⏳",
+      attr: { title: cdTarget ? `Countdown: ${Math.round(cdTarget / 60000)} min` : "Set countdown" },
+    });
+    cdCardBtn.addEventListener("click", async () => {
+      console.log(`[ttimer] analytics-view: set countdown clicked id=${token.id}`);
+      // Inline form — same pattern as popover to avoid native prompt issues
+      const existingForm = card.querySelector(".ttimer-countdown-form");
+      if (existingForm) { existingForm.remove(); return; } // toggle off
+
+      const form = card.createDiv({ cls: "ttimer-countdown-form" });
+      const currentMin = cdTarget ? Math.round(cdTarget / 60000) : 25;
+      const inp = form.createEl("input", {
+        cls: "ttimer-countdown-form-input",
+        attr: { type: "number", min: "1", step: "1", value: String(currentMin), placeholder: "min" },
+      }) as HTMLInputElement;
+      const ok = form.createEl("button", { cls: "ttimer-btn ttimer-btn--confirm", text: "✓" });
+      const cancel = form.createEl("button", { cls: "ttimer-btn ttimer-btn--cancel", text: "✕" });
+      btnRow.insertAdjacentElement("afterend", form);
+      inp.focus(); inp.select();
+
+      const submit = async () => {
+        const mins = parseFloat(inp.value);
+        if (isNaN(mins) || mins <= 0) { inp.style.borderColor = "var(--color-red, #c0392b)"; return; }
+        const { setCountdown } = await import("../domain/transitions");
+        await setCountdown(token.id, Math.round(mins * 60000), this.plugin.store, this.plugin.saveStore.bind(this.plugin));
+        console.log(`[ttimer] analytics-view: countdown saved id=${token.id} mins=${mins}`);
+        form.remove();
+        this.render(); // re-render sidebar to show updated countdown row and button label
+      };
+
+      ok.addEventListener("click", (e) => { e.stopPropagation(); submit(); });
+      cancel.addEventListener("click", (e) => { e.stopPropagation(); form.remove(); });
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); submit(); }
+        if (e.key === "Escape") { form.remove(); }
+      });
+    });
+
     const archiveBtn = btnRow.createEl("button", { cls: "ttimer-btn", text: "📦" });
     archiveBtn.addEventListener("click", async () => {
         console.log(`[ttimer] timerCard: archive clicked id=${token.id}`);

@@ -209,6 +209,50 @@
   font-weight: 600;
 }
 
+/* Inline countdown form (inside popover and sidebar card) */
+.ttimer-countdown-form {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 3px;
+  margin: 4px 0;
+  flex-wrap: nowrap;
+}
+
+.ttimer-countdown-form-label {
+  font-size: 0.72em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ttimer-countdown-form-input {
+  width: 52px;
+  font-size: 0.78em;
+  padding: 2px 4px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  text-align: center;
+}
+
+.ttimer-countdown-form-input:focus {
+  outline: 1px solid var(--interactive-accent);
+  border-color: var(--interactive-accent);
+}
+
+/* Sidebar countdown row */
+.ttimer-card-countdown {
+  font-size: 0.72em;
+  color: var(--text-muted);
+  margin-top: 1px;
+  min-height: 14px;
+}
+
+.ttimer-card-countdown--empty { min-height: 0; }
+
+.ttimer-card-countdown-label { font-variant-numeric: tabular-nums; }
+
 .ttimer-view-header {
   display: flex;
   align-items: center;

@@ -250,43 +250,83 @@ function buildPopoverContent(
     : "Set a countdown target for this timer";
   console.log(`[ttimer] buildPopoverContent: countdown button label="${cdBtnLabel}" existingTarget=${existingTarget ?? "none"} id=${id}`);
 
-  cdBtn.addEventListener("click", async () => {
+  cdBtn.addEventListener("click", () => {
     console.log(`[ttimer] popover: set countdown clicked id=${id}`);
+
+    // Remove any existing inline form to avoid duplicates
+    popover.querySelector(".ttimer-countdown-form")?.remove();
+    popover.querySelector(".ttimer-countdown-error")?.remove();
+
+    // Build inline form inside the popover — avoids native prompt() being
+    // killed by the mousedown dismiss handler
+    const form = popover.createDiv({ cls: "ttimer-countdown-form" });
+
     const currentTarget = store.meta[id]?.countdownTargetMs;
     const currentMin = currentTarget ? Math.round(currentTarget / 60000) : 25;
-    const input = prompt("Set countdown (minutes):", String(currentMin));
-    if (input === null) {
-      console.log(`[ttimer] popover: set countdown cancelled id=${id}`);
-      return;
-    }
-    const mins = parseFloat(input);
-    if (isNaN(mins) || mins <= 0) {
-      console.warn(`[ttimer] popover: invalid countdown input="${input}" id=${id}`);
-      // Show error in popover without closing it
-      let errEl = popover.querySelector<HTMLElement>(".ttimer-countdown-error");
-      if (!errEl) {
-        errEl = popover.createEl("div", { cls: "ttimer-countdown-error" });
-        cdBtn.insertAdjacentElement("afterend", errEl);
+
+    const label = form.createEl("label", {
+      cls: "ttimer-countdown-form-label",
+      text: "Minutes:",
+    });
+    const input = form.createEl("input", {
+      cls: "ttimer-countdown-form-input",
+      attr: {
+        type: "number",
+        min: "1",
+        step: "1",
+        value: String(currentMin),
+        placeholder: "e.g. 25",
+        "aria-label": "Countdown minutes",
+      },
+    }) as HTMLInputElement;
+    label.appendChild(input);
+
+    const confirmBtn = form.createEl("button", {
+      cls: "ttimer-btn ttimer-btn--confirm",
+      text: "✓",
+      attr: { title: "Confirm countdown" },
+    });
+    const cancelBtn = form.createEl("button", {
+      cls: "ttimer-btn ttimer-btn--cancel",
+      text: "✕",
+      attr: { title: "Cancel" },
+    });
+
+    // Insert the form just before the cdBtn so it is visible
+    cdBtn.insertAdjacentElement("beforebegin", form);
+    input.focus();
+    input.select();
+
+    const submit = async () => {
+      const mins = parseFloat(input.value);
+      if (isNaN(mins) || mins <= 0) {
+        console.warn(`[ttimer] popover: invalid countdown input="${input.value}" id=${id}`);
+        input.style.borderColor = "var(--color-red, #c0392b)";
+        input.title = "Enter a positive number of minutes";
+        return;
       }
-      errEl.textContent = `⚠ Enter a positive number of minutes (e.g. 25)`;
-      console.log(`[ttimer] popover: countdown error shown id=${id}`);
-      return;
-    }
+      input.style.borderColor = "";
 
-    try {
       const targetMs = Math.round(mins * 60000);
-      const { setCountdown } = await import("../domain/transitions");
-      await setCountdown(id, targetMs, store, saveStore);
-      console.log(`[ttimer] popover: countdown set to ${mins} minutes (${targetMs}ms) for id=${id}`);
+      console.log(`[ttimer] popover: submitting countdown targetMs=${targetMs} id=${id}`);
 
-      // Remove any error message
-      popover.querySelector(".ttimer-countdown-error")?.remove();
+      try {
+        const { setCountdown } = await import("../domain/transitions");
+        await setCountdown(id, targetMs, store, saveStore);
+        console.log(`[ttimer] popover: countdown saved targetMs=${targetMs} id=${id}`);
+      } catch (err) {
+        console.error(`[ttimer] popover: setCountdown threw id=${id}`, err);
+        form.remove();
+        return;
+      }
 
-      // Rebuild the countdown display section in-place so it appears immediately
+      form.remove();
+
+      // Update/insert the countdown display row
       const existingCdRow = popover.querySelector<HTMLElement>(".ttimer-popover-countdown");
       const { getCountdownStatus: gcs } = await import("../domain/elapsed");
       const cdStatus = gcs(id, store, Date.now());
-      console.log(`[ttimer] popover: cdStatus after save=`, cdStatus);
+      console.log(`[ttimer] popover: cdStatus after save id=${id}`, cdStatus);
 
       if (cdStatus) {
         const labelText = cdStatus.isOvertime
@@ -295,33 +335,26 @@ function buildPopoverContent(
         const labelCls = `ttimer-countdown-label ${cdStatus.isOvertime ? "ttimer-countdown--overtime" : "ttimer-countdown--normal"}`;
 
         if (existingCdRow) {
-          const label = existingCdRow.querySelector<HTMLElement>(".ttimer-countdown-label");
-          if (label) {
-            label.textContent = labelText;
-            label.className = labelCls;
-            console.log(`[ttimer] popover: countdown label updated in-place id=${id}`);
-          }
+          const lbl = existingCdRow.querySelector<HTMLElement>(".ttimer-countdown-label");
+          if (lbl) { lbl.textContent = labelText; lbl.className = labelCls; }
         } else {
           const cdRow = document.createElement("div");
           cdRow.className = "ttimer-popover-countdown";
-          const label = document.createElement("span");
-          label.className = labelCls;
-          label.textContent = labelText;
-          cdRow.appendChild(label);
+          const lbl = document.createElement("span");
+          lbl.className = labelCls;
+          lbl.textContent = labelText;
+          cdRow.appendChild(lbl);
           cdBtn.insertAdjacentElement("beforebegin", cdRow);
-          console.log(`[ttimer] popover: countdown row inserted id=${id}`);
         }
       }
 
-      // Update button label to confirm the new target
-      cdBtn.textContent = `⏳ Edit countdown (${mins}m)`;
-      cdBtn.title = `Countdown set to ${mins} min — click to change`;
-      console.log(`[ttimer] popover: cdBtn label updated to reflect new target id=${id}`);
+      // Update button label
+      cdBtn.textContent = `⏳ Edit countdown (${Math.round(mins)}m)`;
+      cdBtn.title = `Countdown set to ${Math.round(mins)} min — click to change`;
 
-      // Show or update the Clear button
-      let clearCdBtn = popover.querySelector<HTMLElement>(".ttimer-btn--clear-countdown");
-      if (!clearCdBtn) {
-        clearCdBtn = popover.createEl("button", {
+      // Show clear button if not already present
+      if (!popover.querySelector(".ttimer-btn--clear-countdown")) {
+        const clearCdBtn = popover.createEl("button", {
           cls: "ttimer-btn ttimer-btn--clear-countdown",
           text: "✕ Clear countdown",
         });
@@ -329,25 +362,48 @@ function buildPopoverContent(
         cdBtn.insertAdjacentElement("afterend", clearCdBtn);
         clearCdBtn.addEventListener("click", async () => {
           console.log(`[ttimer] popover: clear countdown clicked id=${id}`);
-          if (!store.meta[id]) {
-            console.warn(`[ttimer] popover: clear countdown — no meta for id=${id}, nothing to clear`);
-            popover.remove();
-            return;
+          if (store.meta[id]) {
+            store.meta[id] = { ...store.meta[id]!, countdownTargetMs: undefined, overtimeStartedAt: undefined };
+            await saveStore();
           }
-          store.meta[id] = {
-            ...store.meta[id]!,
-            countdownTargetMs: undefined,
-            overtimeStartedAt: undefined,
-          };
-          await saveStore();
-          console.log(`[ttimer] popover: countdown cleared for id=${id}`);
-          popover.remove();
+          console.log(`[ttimer] popover: countdown cleared id=${id}`);
+          popover.querySelector(".ttimer-popover-countdown")?.remove();
+          clearCdBtn.remove();
+          cdBtn.textContent = "⏳ Set countdown";
+          cdBtn.title = "Set a countdown target for this timer";
         });
       }
-    } catch (err) {
-      console.error(`[ttimer] popover: setCountdown threw an error id=${id}`, err);
-    }
+    };
+
+    confirmBtn.addEventListener("click", (e) => { e.stopPropagation(); submit(); });
+    cancelBtn.addEventListener("click", (e) => { e.stopPropagation(); form.remove(); });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); submit(); }
+      if (e.key === "Escape") { e.stopPropagation(); form.remove(); }
+    });
+    // Prevent mousedown on the form from bubbling to the document dismiss handler
+    form.addEventListener("mousedown", (e) => e.stopPropagation());
   });
+
+  if (existingTarget) {
+    const clearCdBtn = popover.createEl("button", {
+      cls: "ttimer-btn ttimer-btn--clear-countdown",
+      text: "✕ Clear",
+    });
+    clearCdBtn.title = "Remove countdown from this timer";
+    clearCdBtn.addEventListener("click", async () => {
+      console.log(`[ttimer] popover: clear countdown clicked id=${id}`);
+      if (!store.meta[id]) return;
+      store.meta[id] = {
+        ...store.meta[id]!,
+        countdownTargetMs: undefined,
+        overtimeStartedAt: undefined,
+      };
+      await saveStore();
+      console.log(`[ttimer] popover: countdown cleared for id=${id}`);
+      popover.remove();
+    });
+  }
 
   // Single combined button row
   const allBtns = popover.createDiv({ cls: "ttimer-popover-buttons" });
