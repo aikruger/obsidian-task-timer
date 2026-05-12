@@ -24,13 +24,18 @@ export default class TaskTimerPlugin extends Plugin {
     this.addSettingTab(new TaskTimerSettingTab(this.app, this));
 
     // Load store (separately from settings, or extract it if combined)
-    const rawData = await this.loadData();
+    const rawData = await this.loadData() ?? {};
+    console.log("[ttimer] onload: rawData keys=", Object.keys(rawData));
+
     this.store = {
-      version: rawData?.version ?? 1,
-      segments: rawData?.segments ?? {},
-      meta: rawData?.meta ?? {},
-      order: rawData?.order ?? [],
+      version: rawData.version ?? 1,
+      segments: rawData.segments ?? {},
+      meta: rawData.meta ?? {},
+      order: rawData.order ?? [],
     };
+
+    console.log("[ttimer] onload: store.meta keys=", Object.keys(this.store.meta));
+    console.log("[ttimer] onload: store.segments keys=", Object.keys(this.store.segments));
 
     // Hydrate index on startup
     this.app.workspace.onLayoutReady(async () => {
@@ -222,11 +227,11 @@ this.addCommand({
   }
 
   async saveSettings(): Promise<void> {
-    await this.saveData({ ...this.settings, ...this.store });
+    await this.saveData({ ...this.store, ...this.settings });
   }
 
   async saveStore(): Promise<void> {
-    await this.saveData({ ...this.settings, ...this.store });
+    await this.saveData({ ...this.store, ...this.settings });
   }
 
   async openAnalyticsSidebar(): Promise<void> {

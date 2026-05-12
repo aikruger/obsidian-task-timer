@@ -352,21 +352,31 @@ export async function setCountdown(
 ): Promise<void> {
   console.log(`[ttimer] setCountdown: id=${id} targetMs=${targetMs}`);
 
-  if (!store.meta[id]) {
-    console.error(`[ttimer] setCountdown: no meta entry for id=${id} — cannot set countdown`);
-    return;
-  }
-
   if (targetMs <= 0) {
     console.warn(`[ttimer] setCountdown: targetMs=${targetMs} is not positive, aborting`);
     return;
   }
 
-  store.meta[id] = {
-    ...store.meta[id]!,
-    countdownTargetMs: targetMs,
-    overtimeStartedAt: undefined,  // reset overtime whenever target is re-set
-  };
+  if (!store.meta[id]) {
+    // Meta entry missing — create a minimal stub so countdown can still be saved.
+    // This happens when a token exists in the file but loadData produced no meta for it.
+    console.warn(`[ttimer] setCountdown: no meta entry for id=${id} — creating stub entry`);
+    store.meta[id] = {
+      id,
+      filePath: "",            // unknown at this point; will be corrected on next hydration
+      line: 0,
+      taskTextSnapshot: "",
+      firstSeenAt: Date.now(),
+      countdownTargetMs: targetMs,
+      overtimeStartedAt: undefined,
+    };
+  } else {
+    store.meta[id] = {
+      ...store.meta[id]!,
+      countdownTargetMs: targetMs,
+      overtimeStartedAt: undefined,  // reset overtime whenever target is re-set
+    };
+  }
 
   await saveStore();
   console.log(`[ttimer] setCountdown: saved countdownTargetMs=${targetMs} for id=${id}`);
