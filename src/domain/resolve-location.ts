@@ -55,13 +55,14 @@ export async function resolveTokenLocation(
     }
   }
 
-  // Strategy 3: fuzzy match by task text snapshot in same file
+  // Strategy 3: fuzzy match by line text snapshot in same file (any line type)
   const snapshot = meta.taskTextSnapshot.slice(0, 30);
-  for (let i = 0; i < lines.length; i++) {
-    if (isTaskLine(lines[i]!) && lines[i]!.includes(snapshot)) {
-      console.warn(`[ttimer] resolveTokenLocation: fuzzy match at line=${i}, token may have been removed — line="${lines[i]}"`);
-      // Token was removed from line — do not mutate file here, just warn
-      return null;
+  if (snapshot.length > 0) {
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i]!.includes(snapshot)) {
+        console.warn(`[ttimer] resolveTokenLocation: fuzzy text match at line=${i} (token may have been removed) — line="${lines[i]}"`);
+        return null;
+      }
     }
   }
 

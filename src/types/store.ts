@@ -14,6 +14,11 @@ export interface TokenMeta {
   taskTextSnapshot: string;
   firstSeenAt: number;
   archivedAt?: number;
+  // Fields countdownTargetMs and overtimeStartedAt are optional and only
+  // present after the user sets a countdown via setCountdown() in transitions.ts
+  // console.log sanity check: store.meta[id].countdownTargetMs should be a number in ms
+  countdownTargetMs?: number;  // if set, timer counts down from this value
+  overtimeStartedAt?: number;  // epoch ms when countdown reached zero
 }
 
 export interface PluginStore {
@@ -22,4 +27,5 @@ export interface PluginStore {
   segments: Record<string, SegmentEntry[]>;
   // lightweight metadata per known token — updated on every state change
   meta: Record<string, TokenMeta>;
+  order: string[];  // array of token IDs in display order; tokens not in list appear last
 }

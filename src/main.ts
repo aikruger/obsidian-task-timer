@@ -1,5 +1,5 @@
 import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
-import { DEFAULT_SETTINGS, TaskTimerSettings, TaskTimerSettingTab } from "./settings";
+import { DEFAULT_SETTINGS, TaskTimerSettings, TaskTimerSettingTab, applyUiScale } from "./settings";
 import { PluginStore } from "./types/store";
 import { LiveTokenIndex, hydrateTokenIndex } from "./domain/hydration";
 import { registerCompletionWatcher } from "./domain/completion-watcher";
@@ -19,15 +19,23 @@ export default class TaskTimerPlugin extends Plugin {
 
     // Load settings
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    applyUiScale(this.settings.uiScale ?? 1.0);
+    console.log(`[ttimer] onload: applied uiScale=${this.settings.uiScale}`);
     this.addSettingTab(new TaskTimerSettingTab(this.app, this));
 
     // Load store (separately from settings, or extract it if combined)
-    const rawData = await this.loadData();
+    const rawData = await this.loadData() ?? {};
+    console.log("[ttimer] onload: rawData keys=", Object.keys(rawData));
+
     this.store = {
-      version: rawData?.version ?? 1,
-      segments: rawData?.segments ?? {},
-      meta: rawData?.meta ?? {},
+      version: rawData.version ?? 1,
+      segments: rawData.segments ?? {},
+      meta: rawData.meta ?? {},
+      order: rawData.order ?? [],
     };
+
+    console.log("[ttimer] onload: store.meta keys=", Object.keys(this.store.meta));
+    console.log("[ttimer] onload: store.segments keys=", Object.keys(this.store.segments));
 
     // Hydrate index on startup
     this.app.workspace.onLayoutReady(async () => {
@@ -78,7 +86,7 @@ export default class TaskTimerPlugin extends Plugin {
 // --- Attach timer to current task ---
 this.addCommand({
   id: "attach-timer-to-task",
-  name: "Attach timer to current task",
+  name: "Attach timer to current line",
   editorCallback: async (editor, ctx) => {
     console.log("[ttimer:cmd] attach-timer-to-task triggered");
     const file = ctx.file;
@@ -105,7 +113,7 @@ this.addCommand({
 // --- Start timer on current task ---
 this.addCommand({
   id: "start-timer-on-task",
-  name: "Start timer on current task",
+  name: "Start timer on current line",
   editorCallback: async (editor, ctx) => {
     console.log("[ttimer:cmd] start-timer-on-task triggered");
     const file = ctx.file;
@@ -181,6 +189,26 @@ this.addCommand({
   },
 });
 
+// --- Unarchive timer on current task ---
+this.addCommand({
+  id: "unarchive-timer-on-task",
+  name: "Unarchive timer on current task",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] unarchive-timer-on-task triggered");
+    const file = ctx.file;
+    if (!file) return;
+    const { parseTokenFromLine } = await import("./types/token");
+    const { unarchiveTimer } = await import("./domain/transitions");
+    const cursor = editor.getCursor();
+    const line = editor.getLine(cursor.line);
+    const token = parseTokenFromLine(line);
+    if (!token) { new Notice("No timer on this line."); return; }
+    await unarchiveTimer(token.id, this.app, this.store, this.saveStore.bind(this), this.tokenIndex);
+    new Notice("Timer unarchived.");
+    console.log(`[ttimer:cmd] unarchive-timer-on-task: unarchived id=${token.id}`);
+  },
+});
+
     // File open event to refresh token index for that file if needed.
     this.registerEvent(
       this.app.workspace.on("file-open", async (file) => {
@@ -199,11 +227,11 @@ this.addCommand({
   }
 
   async saveSettings(): Promise<void> {
-    await this.saveData({ ...this.settings, ...this.store });
+    await this.saveData({ ...this.store, ...this.settings });
   }
 
   async saveStore(): Promise<void> {
-    await this.saveData({ ...this.settings, ...this.store });
+    await this.saveData({ ...this.store, ...this.settings });
   }
 
   async openAnalyticsSidebar(): Promise<void> {
