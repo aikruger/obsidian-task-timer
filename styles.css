@@ -1,8 +1,355 @@
-/*
+/* --- Task Timer scale root ------------------------------------------ */
+:root {
+  --ttimer-scale: 1;
+  --ttimer-base-font:   calc(0.82em  * var(--ttimer-scale));
+  --ttimer-label-font:  calc(0.80em  * var(--ttimer-scale));
+  --ttimer-small-font:  calc(0.74em  * var(--ttimer-scale));
+  --ttimer-btn-font:    calc(0.74em  * var(--ttimer-scale));
+  --ttimer-btn-pad-v:   calc(2px     * var(--ttimer-scale));
+  --ttimer-btn-pad-h:   calc(6px     * var(--ttimer-scale));
+  --ttimer-card-pad-v:  calc(5px     * var(--ttimer-scale));
+  --ttimer-card-pad-h:  calc(8px     * var(--ttimer-scale));
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+/* styles.css */
 
-If your plugin does not need CSS, delete this file.
+.ttimer-inline-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: middle;
+}
+.ttimer-pill-icon { font-style: normal; }
+.ttimer-pill-time { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.ttimer-inline-marker--running  { background: var(--color-green, #2d6a2d);  color: #fff; }
+.ttimer-inline-marker--paused   { background: var(--color-yellow, #8a6800); color: #fff; }
+.ttimer-inline-marker--stopped  { background: var(--color-red, #7a1e1e);    color: #fff; }
+.ttimer-inline-marker--archived { background: var(--background-modifier-border); color: var(--text-muted); }
 
-*/
+.ttimer-card {
+  border-left: 3px solid transparent;
+  padding: var(--ttimer-card-pad-v) var(--ttimer-card-pad-h);
+  margin-bottom: 3px;
+  border-radius: 4px;
+  background: var(--background-secondary);
+  font-size: var(--ttimer-base-font);
+}
+
+.ttimer-card-label {
+  font-size: var(--ttimer-label-font);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text-normal);
+}
+
+.ttimer-card-time,
+.ttimer-card-elapsed {
+  font-size: var(--ttimer-small-font);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.ttimer-card-file {
+  font-size: var(--ttimer-small-font);
+  color: var(--text-muted);
+  display: block;
+}
+
+.ttimer-card-buttons {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 3px;
+  align-items: center;
+}
+
+.ttimer-card--running .ttimer-card-label {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.ttimer-card--running  { border-left-color: var(--color-success, #437a22); }
+.ttimer-card--paused   { border-left-color: var(--color-gold, #d19900); }
+.ttimer-card--stopped  { border-left-color: var(--color-error, #a12c7b); }
+.ttimer-card--archived { border-left-color: transparent; opacity: 0.55; }
+
+.ttimer-popover {
+  position: fixed;
+  z-index: 1000;
+  min-width: 200px;
+  max-width: min(300px, calc(100vw - 16px));
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: calc(8px * var(--ttimer-scale)) calc(10px * var(--ttimer-scale));
+  box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+  font-size: var(--ttimer-base-font);
+}
+
+.ttimer-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.ttimer-popover-title {
+  font-size: var(--ttimer-label-font);
+  font-weight: 600;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.ttimer-popover-time {
+  font-size: calc(1.15em * var(--ttimer-scale));
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: center;
+  padding: calc(3px * var(--ttimer-scale)) 0 calc(5px * var(--ttimer-scale)) 0;
+  color: var(--text-normal);
+}
+
+.ttimer-popover-buttons {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 4px;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.ttimer-popover-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85em;
+  padding: 2px 4px;
+  border-radius: 3px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.ttimer-popover-icon-btn:hover { background: var(--background-modifier-hover); }
+
+.ttimer-btn {
+  font-size: var(--ttimer-btn-font);
+  padding: var(--ttimer-btn-pad-v) var(--ttimer-btn-pad-h);
+  border-radius: 3px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  cursor: pointer;
+  line-height: 1.3;
+  color: var(--text-normal);
+}
+.ttimer-btn:hover { background: var(--background-modifier-hover); }
+
+.ttimer-btn--order {
+  padding: 1px 4px;
+  font-size: 0.7em;
+  color: var(--text-muted);
+}
+.ttimer-btn--start  { border-color: #2d6a2d; color: #2d6a2d; }
+.ttimer-btn--pause  { border-color: #8a6800; color: #8a6800; }
+.ttimer-btn--stop   { border-color: #7a1e1e; color: #7a1e1e; }
+.ttimer-btn--archive { border-color: var(--text-muted); }
+.ttimer-btn--delete { border-color: #7a1e1e; color: #7a1e1e; }
+
+/* ── Reset button ───────────────────────────────────────── */
+.ttimer-btn--reset {
+  color: var(--color-orange, #da7101);
+  border-color: color-mix(in oklch, var(--color-orange, #da7101) 40%, transparent);
+}
+.ttimer-btn--reset:hover {
+  background: color-mix(in oklch, var(--color-orange, #da7101) 12%, var(--background-primary));
+}
+
+/* ── Total time — sidebar pill ──────────────────────────── */
+.ttimer-card-total {
+  display: block;
+  font-size: var(--ttimer-btn-font, 0.72em);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  margin-top: 1px;
+  margin-bottom: 2px;
+}
+
+/* ── Total time — popover ───────────────────────────────── */
+.ttimer-popover-total {
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.ttimer-popover-total-label {
+  font-size: 0.72em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.ttimer-popover-countdown {
+  font-size: 0.75em;
+  margin-bottom: 4px;
+  text-align: center;
+}
+.ttimer-countdown--overtime {
+  color: var(--color-red, #c0392b);
+  font-weight: 600;
+}
+
+/* Inline countdown form (inside popover and sidebar card) */
+.ttimer-countdown-form {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 3px;
+  margin: 4px 0;
+  flex-wrap: nowrap;
+}
+
+.ttimer-countdown-form-label {
+  font-size: 0.72em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ttimer-countdown-form-input {
+  width: 52px;
+  font-size: 0.78em;
+  padding: 2px 4px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  text-align: center;
+}
+
+.ttimer-countdown-form-input:focus {
+  outline: 1px solid var(--interactive-accent);
+  border-color: var(--interactive-accent);
+}
+
+/* Sidebar countdown row */
+.ttimer-card-countdown {
+  font-size: 0.72em;
+  color: var(--text-muted);
+  margin-top: 1px;
+  min-height: 14px;
+}
+
+.ttimer-card-countdown--empty { min-height: 0; }
+
+.ttimer-card-countdown-label { font-variant-numeric: tabular-nums; }
+
+.ttimer-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin-bottom: 6px;
+  flex-wrap: nowrap;
+}
+
+.ttimer-view-title {
+  flex: 1;
+  font-size: var(--ttimer-label-font);
+  font-weight: 600;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ttimer-refresh-btn {
+  font-size: var(--ttimer-btn-font);
+  padding: var(--ttimer-btn-pad-v) var(--ttimer-btn-pad-h);
+  border-radius: 3px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  cursor: pointer;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.ttimer-refresh-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.ttimer-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Search row ─────────────────────────────────────────────── */
+.ttimer-search-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 4px;
+}
+
+.ttimer-search-input {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: calc(0.82em * var(--ttimer-scale, 1));
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  outline: none;
+}
+
+.ttimer-search-input:focus {
+  border-color: var(--interactive-accent);
+}
+
+.ttimer-search-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  padding: 2px 4px;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.ttimer-search-clear:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* ── Sort Controls ───────────────────────────────────────────── */
+.ttimer-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ttimer-sort-select {
+  font-size: var(--ttimer-btn-font);
+  padding: var(--ttimer-btn-pad-v) var(--ttimer-btn-pad-h);
+  border-radius: 3px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  max-width: 88px;
+  flex-shrink: 0;
+}
+
+.ttimer-sort-select:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ttimer-sort-select:focus {
+  outline: 1px solid var(--interactive-accent);
+  outline-offset: 1px;
+}

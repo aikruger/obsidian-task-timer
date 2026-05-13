@@ -1,99 +1,266 @@
-import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
-import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
+import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { DEFAULT_SETTINGS, TaskTimerSettings, TaskTimerSettingTab, applyUiScale } from "./settings";
+import { PluginStore } from "./types/store";
+import { LiveTokenIndex, hydrateTokenIndex } from "./domain/hydration";
+import { registerCompletionWatcher } from "./domain/completion-watcher";
+import { AnalyticsView, ANALYTICS_VIEW_TYPE } from "./ui/analytics-view";
+import { registerContextMenu } from "./ui/context-menu";
+import { buildInlineDecoratorExtension } from "./ui/inline-decorator";
+import { exportAllToCSV } from "./reporting/reporting-service";
+import { resolveTokenLocation } from "./domain/resolve-location";
 
-// Remember to rename these classes and interfaces!
+export default class TaskTimerPlugin extends Plugin {
+  settings: TaskTimerSettings;
+  store: PluginStore;
+  tokenIndex: LiveTokenIndex = {};
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+  async onload(): Promise<void> {
+    console.log("[ttimer] onload start");
 
-	async onload() {
-		await this.loadSettings();
+    // Load settings
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    applyUiScale(this.settings.uiScale ?? 1.0);
+    console.log(`[ttimer] onload: applied uiScale=${this.settings.uiScale}`);
+    this.addSettingTab(new TaskTimerSettingTab(this.app, this));
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
+    // Load store (separately from settings, or extract it if combined)
+    const rawData = await this.loadData() ?? {};
+    console.log("[ttimer] onload: rawData keys=", Object.keys(rawData));
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
+    this.store = {
+      version: rawData.version ?? 1,
+      segments: rawData.segments ?? {},
+      meta: rawData.meta ?? {},
+      order: rawData.order ?? [],
+    };
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				editor.replaceSelection('Sample editor command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+    console.log("[ttimer] onload: store.meta keys=", Object.keys(this.store.meta));
+    console.log("[ttimer] onload: store.segments keys=", Object.keys(this.store.segments));
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-				return false;
-			}
-		});
+    // Hydrate index on startup
+    this.app.workspace.onLayoutReady(async () => {
+        this.tokenIndex = await hydrateTokenIndex(this.app, this.store);
+        await this.saveStore();
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+        // Register watcher
+        registerCompletionWatcher(this.app, this.tokenIndex, this.store, this.saveStore.bind(this), this.settings);
+    });
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			new Notice("Click");
-		});
+    // Views
+    this.registerView(
+      ANALYTICS_VIEW_TYPE,
+      leaf => new AnalyticsView(leaf, this)
+    );
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+    this.addRibbonIcon("clock", "Task timers", () => {
+      this.openAnalyticsSidebar();
+    });
 
-	}
+    // UI
+    registerContextMenu(this);
+    this.registerEditorExtension(buildInlineDecoratorExtension(this));
 
-	onunload() {
-	}
+    // Commands
+    this.addCommand({
+      id: "open-task-timer-sidebar",
+      name: "Open task timer sidebar",
+      callback: () => this.openAnalyticsSidebar(),
+    });
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
-	}
+    this.addCommand({
+      id: "export-timers-csv",
+      name: "Export timers to CSV",
+      callback: async () => {
+        const csv = exportAllToCSV(this.store);
+        const fileName = `${this.settings.exportFolder ? this.settings.exportFolder + "/" : ""}ttimer-export-${Date.now()}.csv`;
+        try {
+          await this.app.vault.create(fileName, csv);
+          new Notice(`Exported: ${fileName}`);
+        } catch (e) {
+          console.error("[ttimer] export failed", e);
+          new Notice("Export failed — see console.");
+        }
+      },
+    });
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
+// --- Attach timer to current task ---
+this.addCommand({
+  id: "attach-timer-to-task",
+  name: "Attach timer to current line",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] attach-timer-to-task triggered");
+    const file = ctx.file;
+    if (!file) {
+      new Notice("No active file.");
+      console.warn("[ttimer:cmd] attach-timer-to-task: no active file");
+      return;
+    }
+    const { attachTimerToCurrentTask } = await import("./editor/attach-timer");
+    const id = await attachTimerToCurrentTask(
+      editor,
+      file,
+      this.store,
+      this.saveStore.bind(this),
+      this.tokenIndex
+    );
+    if (id) {
+      new Notice("Timer attached.");
+      console.log(`[ttimer:cmd] attach-timer-to-task: attached id=${id}`);
+    }
+  },
+});
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+// --- Start timer on current task ---
+this.addCommand({
+  id: "start-timer-on-task",
+  name: "Start timer on current line",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] start-timer-on-task triggered");
+    const file = ctx.file;
+    if (!file) return;
+    const { attachTimerToCurrentTask } = await import("./editor/attach-timer");
+    const { startTimer } = await import("./domain/transitions");
+    const id = await attachTimerToCurrentTask(editor, file, this.store, this.saveStore.bind(this), this.tokenIndex);
+    if (id) {
+      await startTimer(id, this.app, this.store, this.saveStore.bind(this), this.tokenIndex);
+      new Notice("Timer started.");
+      console.log(`[ttimer:cmd] start-timer-on-task: started id=${id}`);
+    }
+  },
+});
 
-	onOpen() {
-		let {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+// --- Pause timer on current task ---
+this.addCommand({
+  id: "pause-timer-on-task",
+  name: "Pause timer on current task",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] pause-timer-on-task triggered");
+    const file = ctx.file;
+    if (!file) return;
+    const { parseTokenFromLine } = await import("./types/token");
+    const { pauseTimer } = await import("./domain/transitions");
+    const cursor = editor.getCursor();
+    const line = editor.getLine(cursor.line);
+    const token = parseTokenFromLine(line);
+    if (!token) { new Notice("No timer on this line."); return; }
+    await pauseTimer(token.id, this.app, this.store, this.saveStore.bind(this), this.tokenIndex);
+    new Notice("Timer paused.");
+    console.log(`[ttimer:cmd] pause-timer-on-task: paused id=${token.id}`);
+  },
+});
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
+// --- Stop timer on current task ---
+this.addCommand({
+  id: "stop-timer-on-task",
+  name: "Stop timer on current task",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] stop-timer-on-task triggered");
+    const file = ctx.file;
+    if (!file) return;
+    const { parseTokenFromLine } = await import("./types/token");
+    const { stopTimer } = await import("./domain/transitions");
+    const cursor = editor.getCursor();
+    const line = editor.getLine(cursor.line);
+    const token = parseTokenFromLine(line);
+    if (!token) { new Notice("No timer on this line."); return; }
+    await stopTimer(token.id, this.app, this.store, this.saveStore.bind(this), this.tokenIndex);
+    new Notice("Timer stopped.");
+    console.log(`[ttimer:cmd] stop-timer-on-task: stopped id=${token.id}`);
+  },
+});
+
+// --- Archive timer on current task ---
+this.addCommand({
+  id: "archive-timer-on-task",
+  name: "Archive timer on current task",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] archive-timer-on-task triggered");
+    const file = ctx.file;
+    if (!file) return;
+    const { parseTokenFromLine } = await import("./types/token");
+    const { archiveTimer } = await import("./domain/transitions");
+    const cursor = editor.getCursor();
+    const line = editor.getLine(cursor.line);
+    const token = parseTokenFromLine(line);
+    if (!token) { new Notice("No timer on this line."); return; }
+    await archiveTimer(token.id, this.app, this.store, this.saveStore.bind(this), this.tokenIndex, "manual");
+    new Notice("Timer archived.");
+    console.log(`[ttimer:cmd] archive-timer-on-task: archived id=${token.id}`);
+  },
+});
+
+// --- Unarchive timer on current task ---
+this.addCommand({
+  id: "unarchive-timer-on-task",
+  name: "Unarchive timer on current task",
+  editorCallback: async (editor, ctx) => {
+    console.log("[ttimer:cmd] unarchive-timer-on-task triggered");
+    const file = ctx.file;
+    if (!file) return;
+    const { parseTokenFromLine } = await import("./types/token");
+    const { unarchiveTimer } = await import("./domain/transitions");
+    const cursor = editor.getCursor();
+    const line = editor.getLine(cursor.line);
+    const token = parseTokenFromLine(line);
+    if (!token) { new Notice("No timer on this line."); return; }
+    await unarchiveTimer(token.id, this.app, this.store, this.saveStore.bind(this), this.tokenIndex);
+    new Notice("Timer unarchived.");
+    console.log(`[ttimer:cmd] unarchive-timer-on-task: unarchived id=${token.id}`);
+  },
+});
+
+    // File open event to refresh token index for that file if needed.
+    this.registerEvent(
+      this.app.workspace.on("file-open", async (file) => {
+          if (file && file.extension === "md") {
+              // Can do partial hydration here if needed.
+          }
+      })
+    );
+
+    console.log("[ttimer] onload complete");
+  }
+
+  async onunload(): Promise<void> {
+    console.log("[ttimer] onunload");
+    await this.saveStore();
+  }
+
+  async saveSettings(): Promise<void> {
+    await this.saveData({ ...this.store, ...this.settings });
+  }
+
+  async saveStore(): Promise<void> {
+    await this.saveData({ ...this.store, ...this.settings });
+  }
+
+  async openAnalyticsSidebar(): Promise<void> {
+    if (this.app.workspace.getLeavesOfType(ANALYTICS_VIEW_TYPE).length === 0) {
+      const leaf = this.app.workspace.getRightLeaf(false);
+      if (leaf) await leaf.setViewState({ type: ANALYTICS_VIEW_TYPE });
+    }
+    const leaves = this.app.workspace.getLeavesOfType(ANALYTICS_VIEW_TYPE);
+    if (leaves.length > 0 && leaves[0]) this.app.workspace.revealLeaf(leaves[0]);
+  }
+
+  async navigateToTask(filePath: string, lineNo: number, tokenId: string): Promise<void> {
+      const location = await resolveTokenLocation(tokenId, this.app, this.store);
+      let targetFile: TFile | null = null;
+      let targetLine = lineNo;
+
+      if (location) {
+          targetFile = location.file;
+          targetLine = location.lineNo;
+      } else {
+          const file = this.app.vault.getAbstractFileByPath(filePath);
+          if (file instanceof TFile) {
+              targetFile = file;
+          }
+      }
+
+      if (targetFile) {
+          const leaf = this.app.workspace.getLeaf(false);
+          await leaf.openFile(targetFile, { eState: { line: targetLine } });
+      }
+  }
 }
